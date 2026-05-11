@@ -1,0 +1,18 @@
+# seconv — Command Line Converter
+
+`seconv` is Subtitle Edit's headless command-line converter. It supports the same formats, operations, and OCR engines as the desktop app — without any GUI dependency — and is suitable for scripts, CI pipelines, and bulk conversion.
+
+```bash
+seconv *.srt webvtt
+seconv movie.mkv subrip --track-number:3
+seconv movie.sup subrip --ocr-engine:tesseract --ocr-language:eng
+```
+
+For full usage, options, OCR setup, operations pipeline, examples, and exit codes, see the canonical reference:
+
+➡️ **[Command Line (seconv) — full reference](../reference/command-line.md)**
+
+## See also
+
+- [Batch Convert](batch-convert.md) — GUI equivalent
+- [OCR](ocr.md) — engine details and language packs

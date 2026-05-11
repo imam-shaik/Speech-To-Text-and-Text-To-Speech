@@ -1,0 +1,443 @@
+# Command Line (seconv)
+
+`seconv` is Subtitle Edit's headless command-line converter. It reuses the same core libraries as the desktop app (`libse`, `libuilogic`), so it supports the same formats, operations, and OCR engines — without any GUI dependency. Useful for scripts, CI pipelines, server-side workflows, and bulk conversion.
+
+`seconv` lives in the main Subtitle Edit repository and ships in lockstep with the desktop app — no separately maintained fork, no version drift.
+
+## Highlights
+
+- **380+ subtitle formats** — text, binary, and image-based.
+- **Container input** — Matroska (`.mkv` / `.mks`), MP4, MCC, transport stream teletext, Blu-Ray `.sup`.
+- **OCR for image-based sources** via five engines (Tesseract subprocess, nOCR built-in, BinaryOCR built-in, Ollama HTTP, PaddleOCR subprocess).
+- **Image-based output** — Blu-Ray sup, BDN-XML, DOST, FCP, D-Cinema interop / SMPTE 2014, images-with-time-code.
+- **Operations pipeline** — offset, fps change, change-speed, renumber, adjust-duration, fix-common-errors, merge/split, balance, redo casing, RTL fixes, multiple-replace, custom-text format, plain text.
+- **Cross-platform** — Windows, Linux, macOS. Only requires the .NET runtime; no display or GUI needed.
+
+## Installation
+
+Pre-built binaries are distributed alongside Subtitle Edit. To build from source:
+
+```bash
+dotnet build src/seconv/SeConv.csproj -c Release
+```
+
+The executable is `seconv` (or `seconv.exe` on Windows).
+
+## Usage
+
+```bash
+seconv <pattern> <format> [options]
+seconv <pattern> --format <name> [options]   # alternative syntax
+```
+
+The format may be passed as the second positional argument or via `--format <name>`. Multiple input patterns can be passed as separate quoted arguments or comma-separated:
+
+```bash
+seconv "file1.srt" "file2.srt" subrip --overwrite
+seconv "*.srt,*.ass" subrip --input-folder:./in
+```
+
+Options accept either `--option:value`, `--option=value`, or `--option value`. The colon form is shown throughout this page.
+
+### Quick examples
+
+```bash
+seconv *.srt sami                                                  # SRT → SAMI
+seconv movie.srt subrip --encoding:windows-1252                    # encoding override
+seconv *.sub subrip --fps:25 --output-folder:./out                 # frame-based → time-based
+
+seconv movie.mkv subrip --track-number:3                           # extract MKV text track #3
+seconv movie.sup subrip --ocr-engine:tesseract --ocr-language:eng  # OCR a Blu-Ray .sup
+seconv movie.sup subrip --ocr-engine:nocr --ocr-db:Latin.nocr      # OCR via nOCR
+seconv movie.sup subrip --ocr-engine:binaryocr --ocr-db:Latin.db   # OCR via BinaryOCR
+seconv movie.sup subrip --ocr-engine:ollama --ollama-model:llama3.2-vision
+
+seconv subs.srt bluraysup --resolution:1920x1080                   # render text → Blu-Ray sup
+seconv subs.srt bdnxml --resolution:1920x1080                      # render text → BDN-XML
+
+seconv subs.srt customtext --custom-format:my-template.xml         # custom template
+seconv *.srt subrip --multiple-replace:rules.xml                   # search-and-replace pass
+
+seconv subs.srt subrip --offset:-2000 --renumber:1 --overwrite     # offset 2s back, renumber from 1
+```
+
+## Subcommands
+
+```bash
+seconv formats              # list all supported formats
+seconv list-encodings       # list text encodings
+seconv list-pac-codepages   # list PAC code pages
+seconv list-ocr-engines     # list OCR engines + installation status
+seconv list-fce-rules       # list FixCommonErrors rule IDs
+seconv info <file>          # print format/encoding/duration/language for a file
+seconv lint <pattern>       # validate subtitle(s); exit 1 if issues found
+seconv --help               # show help
+seconv --version            # print version and exit
+```
+
+### Inspect & validate
+
+```bash
+seconv info movie.srt                # human-readable table
+seconv info movie.srt --json         # machine-parseable
+
+seconv lint *.srt                    # check overlaps, line lengths, tags, ...
+seconv lint *.srt --json             # CI-friendly: exit 1 on any issue
+```
+
+## Options
+
+### File / I/O
+
+| Option | Description |
+|---|---|
+| `--input-folder:<path>` | Input folder; relative patterns resolve against it |
+| `--output-folder:<path>` | Output folder (default: input file's directory) |
+| `--output-filename:<name>` | Output file name (single input only) |
+| `--overwrite` | Overwrite existing files (default: rotate to `name_2.ext`, `_3.ext`, ...) |
+| `--encoding:<name>` | Encoding name or codepage. Special values: `utf-8`, `utf-8-no-bom` (also `utf-8-nobom`, `utf8-nobom`), or a code page number. Defaults: auto-detect on input, UTF-8 BOM on output |
+
+### Time / frame
+
+| Option | Description |
+|---|---|
+| `--offset:hh:mm:ss:ms` | Shift all timecodes (also accepts plain ms, signed: `-1500`, `+1500`) |
+| `--fps:<rate>` | Source frame rate (used for frame-based input formats) |
+| `--target-fps:<rate>` | Target frame rate (with `--fps`, calls `Subtitle.ChangeFrameRate`) |
+| `--adjust-duration:<ms>` | Add/subtract milliseconds to each paragraph's duration |
+| `--change-speed:<percent>` | Scale all times by 100/percent (e.g. `125` = 1.25× faster). Must be > 0 |
+| `--renumber:<n>` | Renumber paragraphs starting at `n` |
+
+### Format-specific
+
+| Option | Applies to | Description |
+|---|---|---|
+| `--resolution:<WxH>` | ASSA, image-based | Sets `PlayResX`/`PlayResY` for ASSA; sets canvas for image outputs (default `1920x1080`) |
+| `--assa-style-file:<file>` | ASSA | Apply `[V4+ Styles]` block from another ASSA file |
+| `--pac-codepage:<page>` | PAC | Code page name (`Latin`, `Greek`, `Hebrew`, …) or numeric (0–12). See `seconv list-pac-codepages` |
+| `--ebu-header-file:<file>` | EBU STL | Reuse the GSI header block from an existing `.stl` file |
+
+### Containers / tracks
+
+`seconv` automatically extracts subtitle tracks from container files:
+
+| Extension | Sources |
+|---|---|
+| `.mkv`, `.mks` | Matroska text tracks (S_TEXT/UTF8, SSA, ASS, HDMV/TEXTST) and image tracks (S_HDMV/PGS via OCR) |
+| `.mp4`, `.m4v`, `.m4s`, `.3gp` | MP4 text tracks and WebVTT VTTC |
+| `.mcc` | MacCaption 1.0 |
+| `.ts`, `.m2ts`, `.mts` | Transport stream — teletext (no OCR) and DVB-sub (via OCR) |
+| `.sup` | Blu-Ray sup (via OCR) |
+
+When a container has multiple usable tracks, one output file is written per track with the track's language code as a suffix:
+
+```
+movie.mkv → movie.eng.srt
+            movie.deu.srt
+            movie.fra.srt
+```
+
+If two tracks share a language, the track number is added: `movie.#3.eng.srt`.
+
+| Option | Description |
+|---|---|
+| `--track-number:<list>` | Comma-separated track numbers to keep |
+| `--forced-only` | MKV: keep only forced tracks |
+| `--teletext-only` | TS: skip DVB-sub OCR (teletext only) |
+| `--teletext-only-page:<n>` | TS: extract only this teletext page |
+
+### OCR
+
+| `--ocr-engine` | Type | Setup |
+|---|---|---|
+| `tesseract` *(default)* | Subprocess | Install Tesseract (`apt install tesseract-ocr`, `brew install tesseract`, or the Windows installer); ensure it is on `PATH`. Pass `--ocr-language` as ISO 639-2 (`eng`, `deu`, `spa`, …). |
+| `nocr` | In-process | Built-in nOCR matcher. Required: `--ocr-db:<path-to-Latin.nocr>`. |
+| `binaryocr` *(alias: `binary`)* | In-process | Built-in BinaryOCR matcher (different accuracy profile, similar speed). Required: `--ocr-db:<path-to-Latin.db>`. |
+| `ollama` | HTTP | Local Ollama server with a vision-capable model (e.g. `llama3.2-vision`, `qwen2.5vl`). Configure via `--ollama-url` (default `http://localhost:11434/api/chat`) and `--ollama-model` (default `llama3.2-vision`). Pass `--ocr-language` as a human name like `English`. |
+| `paddle` *(alias: `paddleocr`)* | Subprocess | Install via `pip install paddleocr`; ensure the `paddleocr` binary is on `PATH`. Pass `--ocr-language` as a short code (`en`, `de`, …). |
+
+| Option | Description |
+|---|---|
+| `--ocr-engine:<engine>` | `tesseract` (default) \| `nocr` \| `binaryocr` \| `ollama` \| `paddle` |
+| `--ocr-language:<lang>` | Tesseract: ISO 639-2 (`eng`, `deu`); Paddle: short (`en`); Ollama: human (`English`) |
+| `--ocr-db:<path>` | OCR database file: `.nocr` for `nocr`, `.db` for `binaryocr` (required for both) |
+| `--ollama-url:<url>` | Default `http://localhost:11434/api/chat` |
+| `--ollama-model:<model>` | Default `llama3.2-vision` |
+
+> **OCR database files are not bundled with `seconv`.** The `nocr` and `binaryocr` engines need a `.nocr` or `.db` file passed via `--ocr-db`. Sources:
+>
+> - If you have the desktop UI installed: `%AppData%\Subtitle Edit\OCR\` (Windows) or `~/.config/Subtitle Edit/OCR/` (Linux/macOS).
+> - From the repo: [`Ocr/Latin.nocr`](https://github.com/SubtitleEdit/subtitleedit/raw/main/Ocr/Latin.nocr) and [`Ocr/Latin.db`](https://github.com/SubtitleEdit/subtitleedit/raw/main/Ocr/Latin.db).
+> - Other languages: download from the SE UI (Tools → "OCR with nOCR" / BinaryOCR → download).
+
+Run `seconv list-ocr-engines` for the per-engine installation-status table.
+
+```bash
+# Tesseract
+seconv movie.sup subrip --ocr-engine:tesseract --ocr-language:eng
+
+# nOCR (no external dependency)
+seconv movie.sup subrip --ocr-engine:nocr --ocr-db:"C:\Users\me\AppData\Roaming\Subtitle Edit\Ocr\Latin.nocr"
+
+# BinaryOCR
+seconv movie.sup subrip --ocr-engine:binaryocr --ocr-db:"C:\Users\me\AppData\Roaming\Subtitle Edit\Ocr\Latin.db"
+
+# MKV with image (PGS) tracks — OCR runs automatically
+seconv movie.mkv subrip --ocr-engine:tesseract --ocr-language:eng
+
+# Transport-stream teletext (no OCR needed)
+seconv broadcast.ts subrip
+```
+
+### Templates / replacements
+
+| Option | Description |
+|---|---|
+| `--multiple-replace:<path.xml>` | SE *MultipleSearchAndReplaceGroups* XML, applied per paragraph after operations. Supports `Normal` (case-insensitive), `CaseSensitive`, and `RegularExpression` rules |
+| `--custom-format:<path.xml>` | SE *CustomFormatItem* XML (use with `--format customtext`) |
+| `--settings:<path.json>` | JSON file overlaying `Configuration.Settings` (general / tools / removeTextForHearingImpaired). Optional `profiles` map for named overlays |
+| `--profile:<name>` | Selects a named overlay from the settings file's `profiles` map. Requires `--settings` |
+
+#### Multiple-replace XML
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<MultipleSearchAndReplaceGroups>
+  <Group>
+    <Name>Demo</Name>
+    <IsActive>true</IsActive>
+    <Rules>
+      <Rule>
+        <Active>true</Active>
+        <FindWhat>colour</FindWhat>
+        <ReplaceWith>color</ReplaceWith>
+        <SearchType>Normal</SearchType>
+      </Rule>
+      <Rule>
+        <Active>true</Active>
+        <FindWhat>\bteh\b</FindWhat>
+        <ReplaceWith>the</ReplaceWith>
+        <SearchType>RegularExpression</SearchType>
+      </Rule>
+    </Rules>
+  </Group>
+</MultipleSearchAndReplaceGroups>
+```
+
+```bash
+seconv *.srt subrip --multiple-replace:fixes.xml
+```
+
+#### Custom text format XML
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<CustomFormatItem>
+  <Name>JSON-ish</Name>
+  <Extension>.json</Extension>
+  <FormatHeader>{
+  "lines": [</FormatHeader>
+  <FormatParagraph>    {"start": "{start}", "end": "{end}", "text": "{text}"},</FormatParagraph>
+  <FormatFooter>  ]
+}</FormatFooter>
+  <FormatTimeCode>hh:mm:ss.zzz</FormatTimeCode>
+</CustomFormatItem>
+```
+
+```bash
+seconv subs.srt customtext --custom-format:lines.xml
+```
+
+Available template tokens: `{title}`, `{number}`, `{start}`, `{end}`, `{duration}`, `{gap}`, `{text}`, `{text-line-1}`, `{text-line-2}`, `{actor}`, `{cps-comma}`, `{cps-period}`, `{text-length}`, `{bookmark}`, `{media-file-name}`, `{media-file-name-full}`, `{#lines}`, `{#total-words}`, `{#total-characters}`, `{tab}`. Time-code tokens accept `hh`/`h`, `mm`/`m`, `ss`/`s`, and `zzz`/`zz`/`z` for milliseconds (or `zzzzzzz...` for total milliseconds without breakdown).
+
+#### Settings JSON
+
+```json
+{
+  "general": {
+    "subtitleLineMaximumLength": 43,
+    "subtitleMaximumDisplayMilliseconds": 8000
+  },
+  "removeTextForHearingImpaired": {
+    "removeTextBeforeColon": true,
+    "removeInterjections": false
+  },
+  "profiles": {
+    "broadcast": {
+      "general": { "subtitleMaximumDisplayMilliseconds": 6000 },
+      "removeTextForHearingImpaired": { "removeInterjections": true }
+    }
+  }
+}
+```
+
+```bash
+seconv *.srt subrip --settings:my.json --profile:broadcast --remove-text-for-hi
+```
+
+### Verbosity
+
+| Option | Description |
+|---|---|
+| `--quiet` / `-q` | Suppress per-file progress and the parameters table; only print the final summary |
+| `--verbose` / `-v` | Reserved for diagnostic output (currently parsed but unused) |
+| `--json` | Emit per-file results as JSON to stdout (suppresses Spectre output) |
+
+## Operations
+
+Operations run after the structural transforms (offset, fps, renumber, adjust-duration, change-speed) in a fixed, sensible order regardless of where they appear on the command line:
+
+| Option | Description |
+|---|---|
+| `--apply-duration-limits` | Apply duration limits |
+| `--apply-min-gap:<ms>` | Enforce minimum gap of N ms between paragraphs |
+| `--balance-lines` | Balance line lengths |
+| `--beautify-time-codes` | Beautify time codes |
+| `--bridge-gaps:<ms>` | Bridge gaps shorter than N ms (extends previous end time) |
+| `--convert-colors-to-dialog` | Convert colors to dialog |
+| `--delete-first:<n>` | Delete first N entries |
+| `--delete-last:<n>` | Delete last N entries |
+| `--delete-contains:<word>` | Delete entries containing the given word |
+| `--fix-common-errors` | Fix common subtitle errors (all 38 rules) |
+| `--fix-common-errors-rules:<list>` | Run a subset of FCE rules (CSV; supports `all,-RuleId`) |
+| `--fix-rtl-via-unicode-chars` | Fix RTL via Unicode characters |
+| `--merge-same-texts` | Merge entries with same text |
+| `--merge-same-time-codes` | Merge entries with same time codes |
+| `--merge-short-lines` | Merge short lines |
+| `--redo-casing` | Redo text casing |
+| `--remove-formatting` | Remove formatting tags |
+| `--remove-line-breaks` | Remove line breaks |
+| `--remove-text-for-hi` | Remove text for hearing impaired |
+| `--remove-unicode-control-chars` | Remove Unicode control characters |
+| `--reverse-rtl-start-end` | Reverse RTL start/end |
+| `--split-long-lines` | Split long lines |
+
+```bash
+# Common cleanup pass
+seconv *.srt subrip --remove-text-for-hi --merge-same-texts --split-long-lines --overwrite
+```
+
+### FixCommonErrors rule selection
+
+`--fix-common-errors` (no value) runs all 38 rules. Pass `--fix-common-errors-rules:<list>` to pick a subset — supplying that option implies `--fix-common-errors`.
+
+```bash
+seconv movie.srt subrip --fix-common-errors                                  # all rules
+seconv movie.srt subrip --fix-common-errors-rules:FixCommas,FixMissingSpaces
+seconv movie.srt subrip --fix-common-errors-rules:all,-FixDanishLetterI      # all except one
+seconv list-fce-rules                                                        # show rule IDs
+```
+
+`FixCommonOcrErrors` is intentionally excluded — it requires UI-side spell-check and OCR-engine setup that seconv doesn't carry.
+
+## Output format aliases
+
+| Aliases | Format |
+|---|---|
+| `srt`, `subrip` | SubRip |
+| `ass`, `assa` | Advanced Sub Station Alpha |
+| `ssa` | Sub Station Alpha |
+| `vtt`, `webvtt` | WebVTT |
+| `smi`, `sami` | SAMI |
+| `sbv` | YouTube SBV |
+| `pac` | PAC (Screen Electronics) — binary |
+| `unipac`, `pacunicode` | PAC Unicode |
+| `ebu`, `ebustl`, `stl` | EBU STL — binary |
+| `cavena`, `cavena890` | Cavena 890 — binary |
+| `cheetahcaption` | CheetahCaption — binary |
+| `capmakerplus` | CapMakerPlus — binary |
+| `ayato` | Ayato — binary |
+| `bluraysup`, `sup` | Blu-Ray sup — image |
+| `vobsub` | VobSub — image |
+| `bdnxml`, `bdn-xml` | BDN-XML — image (folder of PNGs + index.xml) |
+| `dost`, `dostimage` | DOST/image |
+| `fcpimage`, `fcp` | FCP/image |
+| `dcinemainterop` | D-Cinema interop/png |
+| `dcinemasmpte2014` | D-Cinema SMPTE 2014/png |
+| `imageswithtimecode` | Images with time codes in file name |
+| `plaintext`, `text`, `txt` | Plain text (HTML stripped) |
+| `customtext`, `customtextformat` | Custom-templated text (requires `--custom-format`) |
+
+Run `seconv formats` for the full catalog (380+ entries, including input-only formats like Matroska, MP4, and MCC).
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Conversion succeeded for all matched files |
+| `1` | Any error: validation failure, parse error, OCR engine missing, invalid `--settings` file, or one or more files failed to convert |
+
+## Legacy syntax
+
+- Old SE 4.x `/parameter:value` syntax is auto-translated to `--parameter:value`.
+- Older smashed-together long options (`--inputfolder`, `--ocrengine`, `--FixCommonErrors`, …) are kept as hidden aliases for the new POSIX-style names (`--input-folder`, `--ocr-engine`, `--fix-common-errors`, …), so existing scripts keep working.
+
+## More examples
+
+### Bulk format conversion
+```bash
+seconv "*.srt" assa --input-folder:./input --output-folder:./output --overwrite
+```
+
+### MKV → SRT extraction
+```bash
+seconv movie.mkv subrip --overwrite                       # one SRT per language
+seconv movie.mkv subrip --track-number:3 --overwrite      # only track 3
+seconv movie.mkv subrip --forced-only --overwrite         # forced only
+```
+
+### Blu-Ray sup OCR with cleanup
+```bash
+seconv subs.sup subrip \
+  --ocr-engine:tesseract \
+  --ocr-language:eng \
+  --remove-text-for-hi \
+  --split-long-lines \
+  --overwrite
+```
+
+### Round-trip via image-based output
+```bash
+seconv subs.srt bluraysup --resolution:1920x1080 --overwrite
+seconv subs.srt bdnxml --overwrite
+```
+
+### EBU STL with reused header
+```bash
+seconv new.srt ebustl --ebu-header-file:original.stl --overwrite
+```
+
+### Time shift + frame-rate conversion
+```bash
+seconv subs.srt subrip --fps:24 --target-fps:25 --offset:500 --overwrite
+```
+
+### Plain text export
+```bash
+seconv movie.srt plaintext --overwrite
+```
+
+### Custom JSON output via template
+```bash
+seconv movie.srt customtext --custom-format:lines-template.xml --output-filename:movie.json --overwrite
+```
+
+## Architecture
+
+`seconv` depends only on Subtitle Edit's core libraries — no Avalonia / GUI runtime:
+
+```
+src/
+├── libse/        Core subtitle library (NuGet-shippable, netstandard2.1)
+├── libuilogic/   Shared headless logic (BatchConverter pipeline, OCR matchers, image renderer)
+├── seconv/       This CLI
+└── ui/           Avalonia desktop UI (not referenced by seconv)
+```
+
+This means `seconv` can run on systems without a display (CI, headless servers, Docker) without bundling Avalonia or any X server.
+
+## See also
+
+- [Supported Formats](supported-formats.md) — full format catalog
+- [Batch Convert](../features/batch-convert.md) — GUI equivalent
+- [OCR](../features/ocr.md) — engine details and language packs

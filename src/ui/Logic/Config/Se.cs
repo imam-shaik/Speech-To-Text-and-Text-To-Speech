@@ -1,0 +1,501 @@
+using Nikse.SubtitleEdit.Core.Common;
+using Nikse.SubtitleEdit.Core.Forms.FixCommonErrors;
+using Nikse.SubtitleEdit.Features.Main;
+using Nikse.SubtitleEdit.Logic.Config.Language;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
+
+namespace Nikse.SubtitleEdit.Logic.Config;
+
+public class Se
+{
+    public SeGeneral General { get; set; } = new();
+    public List<SeShortCut> Shortcuts { get; set; } = new();
+    public string Color1 { get; set; } = "#ffff00ff";
+    public string Color2 { get; set; } = "#ff0000ff";
+    public string Color3 { get; set; } = "#00ff00ff";
+    public string Color4 { get; set; } = "#00ffffff";
+    public string Color5 { get; set; } = "#000000ff";
+    public string Color6 { get; set; } = "#ffffffff";
+    public string Color7 { get; set; } = "#ffa500ff";
+    public string Color8 { get; set; } = "#ffc0cbff";
+    public string Surround1Left { get; set; } = "♪";
+    public string Surround1Right { get; set; } = "♪";
+    public string Surround2Left { get; set; } = "♫";
+    public string Surround2Right { get; set; } = "♫";
+    public string Surround3Left { get; set; } = "[";
+    public string Surround3Right { get; set; } = "]";
+    public SeFile File { get; set; } = new();
+    public SeEdit Edit { get; set; } = new();
+    public SeTools Tools { get; set; } = new();
+    public SeOptions Options { get; set; } = new();
+    public SeAutoTranslate AutoTranslate { get; set; } = new();
+    public SeSync Synchronization { get; set; } = new();
+    public SeSpellCheck SpellCheck { get; set; } = new();
+    public SeAppearance Appearance { get; set; } = new();
+    public SeAssa Assa { get; set; } = new();
+    public SeSsa Ssa { get; set; } = new();
+    public SeVideo Video { get; set; } = new();
+    public SeWaveform Waveform { get; set; } = new();
+    public SeFormats Formats { get; set; } = new();
+    public SeOcr Ocr { get; set; } = new();
+    public static SeLanguage Language { get; set; } = new();
+    public static Se Settings { get; set; } = new();
+
+    public static readonly bool IsInstalledInProgramFiles;
+    public static readonly bool IsPortable;
+    public static readonly string ExePath;
+    public static readonly string DataFolder;
+
+    static Se()
+    {
+        ExePath = AppContext.BaseDirectory;
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+
+        IsInstalledInProgramFiles =
+            ExePath.StartsWith(programFiles, StringComparison.OrdinalIgnoreCase) ||
+            ExePath.StartsWith(programFilesX86, StringComparison.OrdinalIgnoreCase);
+
+        IsPortable = !IsInstalledInProgramFiles;
+
+        DataFolder = IsPortable
+            ? ExePath
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Subtitle Edit");
+
+        try
+        {
+            Directory.CreateDirectory(DataFolder);
+        }
+        catch
+        {
+            SeLogger.Error("Error creating data folder: " + DataFolder);
+        }
+
+        // Sync libse Configuration so it uses the same data folder as Se.
+        // Without this, Configuration.GetDataDirectory() uses its own heuristics and may
+        // create or return %AppData%\Subtitle Edit even when running in portable mode.
+        Configuration.DataDirectory = DataFolder;
+        Configuration.BaseDirectory = Se.DataFolder;
+        NetflixQualityCheck.NetflixCheckShotChange.ShotChangeDirectory = Se.ShotChangesFolder;
+    }
+
+    private static string? _dictionariesFolder;
+    public static string DictionariesFolder
+    {
+        get => _dictionariesFolder ?? Path.Combine(DataFolder, "Dictionaries");
+        set => _dictionariesFolder = value;
+    }
+    public static string ThemesFolder => Path.Combine(DataFolder, "Themes");
+    public static string AutoBackupFolder => Path.Combine(DataFolder, "AutoBackup");
+    public static string FfmpegFolder => Path.Combine(DataFolder, "ffmpeg");
+    public static string TextToSpeechFolder => Path.Combine(DataFolder, "TextToSpeech");
+    public static string SpeechToTextFolder => Path.Combine(DataFolder, "SpeechToText");
+    public static string WaveformsFolder => Path.Combine(DataFolder, "Waveforms");
+    public static string SpectrogramsFolder => Path.Combine(DataFolder, "Spectrograms");
+    public static string ShotChangesFolder => Path.Combine(DataFolder, "ShotChanges");
+
+    public static string OcrFolder => Path.Combine(DataFolder, "OCR");
+    public static string TranslationFolder => Path.Combine(DataFolder, "Languages");
+    public static string PaddleOcrFolder => Path.Combine(OcrFolder, "PaddleOCR3-1");
+    public static string PaddleOcrModelsFolder => Path.Combine(PaddleOcrFolder, "models");
+    public static string GoogleLensOcrFolder => Path.Combine(OcrFolder, "Google-Lens");
+    public static string VlcFolder => Path.Combine(DataFolder, "VLC");
+    public static string SevenZipFolder => Path.Combine(DataFolder, "7Zip");
+    private static readonly Lazy<string> _tesseractFolder = new(ResolveTesseractFolder);
+    public static string TesseractFolder => _tesseractFolder.Value;
+
+    private static string ResolveTesseractFolder()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return Path.Combine(DataFolder, "Tesseract550");
+        }
+
+        var folders = new List<string>();
+        if (Directory.Exists("/opt/homebrew/Cellar/tesseract"))
+        {
+            foreach (var folder in Directory.EnumerateDirectories("/opt/homebrew/Cellar/tesseract"))
+            {
+                folders.Add(Path.Combine(folder, "bin"));
+            }
+        }
+
+        folders.Add("/usr/local/bin");
+        folders.Add("/usr/bin");
+        folders.Add("/opt/homebrew/bin");
+        folders.Add("/opt/local/bin");
+
+        foreach (var folder in folders)
+        {
+            var path = Path.Combine(folder, "tesseract");
+            if (System.IO.File.Exists(path))
+            {
+                return folder;
+            }
+        }
+
+        return Path.Combine(DataFolder, "Tesseract550");
+    }
+
+    private static readonly Lazy<string> _tesseractModelFolder = new(ResolveTesseractModelFolder);
+    public static string TesseractModelFolder => _tesseractModelFolder.Value;
+
+    private static string ResolveTesseractModelFolder()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return Path.Combine(TesseractFolder, "tessdata");
+        }
+
+        var folders = new List<string>();
+
+        if (Directory.Exists("/opt/homebrew/Cellar/tesseract-lang"))
+        {
+            foreach (var folder in Directory.EnumerateDirectories("/opt/homebrew/Cellar/tesseract-lang"))
+            {
+                folders.Add(Path.Combine(folder, "share/tessdata"));
+            }
+        }
+
+        if (Directory.Exists("/usr/share/tesseract-ocr"))
+        {
+            foreach (var folder in Directory.EnumerateDirectories("/usr/share/tesseract-ocr"))
+            {
+                folders.Add(Path.Combine(folder, "tessdata"));
+            }
+        }
+
+        folders.Add("/usr/share/tessdata");
+        folders.Add("/opt/homebrew/share/tessdata/");
+
+        foreach (var folder in folders)
+        {
+            if (Directory.Exists(folder))
+            {
+                return folder;
+            }
+        }
+
+        return Path.Combine(TesseractFolder, "tessdata");
+    }
+
+    public static string Version { get; set; } = "v5.0.0-beta24";
+
+    public void InitializeMainShortcuts(MainViewModel vm)
+    {
+        if (Shortcuts.Count > 0)
+        {
+            return;
+        }
+
+        Shortcuts = ShortcutsMain.GetDefaultShortcuts(vm);
+    }
+
+    public static void SaveSettings()
+    {
+        var settingsFileName = GetSettingsFilePath();
+        SaveSettings(settingsFileName);
+    }
+
+    public static void SaveSettings(string settingsFileName)
+    {
+        var directory = Path.GetDirectoryName(settingsFileName);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        // Atomic write: serialize directly to a temp file (UTF-8, no string round-trip)
+        // and replace, so a process kill mid-write can't leave a truncated settings file.
+        var tempFileName = settingsFileName + ".tmp";
+        using (var stream = System.IO.File.Create(tempFileName))
+        {
+            JsonSerializer.Serialize(stream, Settings, SeJsonContext.Default.Se);
+        }
+
+        System.IO.File.Move(tempFileName, settingsFileName, overwrite: true);
+
+        UpdateLibSeSettings();
+    }
+
+    public static void LoadSettings()
+    {
+        var settingsFileName = GetSettingsFilePath();
+        LoadSettings(settingsFileName);
+    }
+
+    public static string GetSettingsFilePath()
+    {
+        return Path.Combine(DataFolder, "Settings.json");
+    }
+
+    public static void LoadSettings(string settingsFileName)
+    {
+        if (!System.IO.File.Exists(settingsFileName))
+        {
+            return;
+        }
+
+        try
+        {
+            // Stream + source-generated metadata: no UTF-16 string round-trip and no
+            // runtime reflection over the settings type graph.
+            using var stream = System.IO.File.OpenRead(settingsFileName);
+            Settings = JsonSerializer.Deserialize(stream, SeJsonContext.Default.Se)!;
+        }
+        catch (Exception exception)
+        {
+            Se.LogError(exception);
+            Settings = new Se();
+        }
+
+        SetDefaultValues();
+
+        UpdateLibSeSettings();
+    }
+
+    private static void SetDefaultValues()
+    {
+        if (Settings.Tools == null)
+        {
+            Settings.Tools = new();
+        }
+
+        if (Settings.AutoTranslate == null)
+        {
+            Settings.AutoTranslate = new();
+        }
+
+        if (Settings.File == null)
+        {
+            Settings.File = new();
+        }
+
+        if (Settings.Edit == null)
+        {
+            Settings.Edit = new();
+        }
+
+        if (Settings.Options == null)
+        {
+            Settings.Options = new();
+        }
+
+        if (Settings.General == null)
+        {
+            Settings.General = new();
+        }
+
+        if (Settings.Synchronization == null)
+        {
+            Settings.Synchronization = new();
+        }
+
+        if (Settings.SpellCheck == null)
+        {
+            Settings.SpellCheck = new();
+        }
+
+        if (Settings.Appearance == null)
+        {
+            Settings.Appearance = new();
+        }
+
+        if (Settings.Assa == null)
+        {
+            Settings.Assa = new();
+        }
+
+        if (Settings.Video == null)
+        {
+            Settings.Video = new();
+        }
+
+        if (Settings.Waveform == null)
+        {
+            Settings.Waveform = new();
+        }
+
+        if (Settings.Ocr == null)
+        {
+            Settings.Ocr = new();
+        }
+
+        if (Settings.Formats == null)
+        {
+            Settings.Formats = new SeFormats();
+        }
+
+        if (Settings.Tools.FixCommonErrors.Profiles.Count == 0)
+        {
+            Settings.Tools.FixCommonErrors.Profiles.Add(new SeFixCommonErrorsProfile
+            {
+                ProfileName = "Default",
+                SelectedRules = new()
+                {
+                    nameof(FixEmptyLines),
+                    nameof(FixOverlappingDisplayTimes),
+                    nameof(FixLongDisplayTimes),
+                    nameof(FixShortDisplayTimes),
+                    nameof(FixShortGaps),
+                    nameof(FixInvalidItalicTags),
+                    nameof(FixUnneededSpaces),
+                    nameof(FixMissingSpaces),
+                    nameof(FixUnneededPeriods),
+                },
+            });
+            Settings.Tools.FixCommonErrors.LastProfileName = "Default";
+        }
+    }
+
+    private static string GetSeInfo()
+    {
+        try
+        {
+            return $"{Version} - {Environment.OSVersion} - {IntPtr.Size * 8}-bit";
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static void UpdateLibSeSettings()
+    {
+        Configuration.Settings.General.FFmpegLocation = Settings.General.FfmpegPath;
+        Configuration.Settings.General.UseDarkTheme = Settings.Appearance.Theme == "Dark";
+        Configuration.Settings.General.UseTimeFormatHHMMSSFF = Settings.General.UseFrameMode;
+
+        var stt = Settings.Tools.AudioToText;
+        Configuration.Settings.Tools.WhisperChoice = stt.WhisperChoice;
+        Configuration.Settings.Tools.WhisperIgnoreVersion = stt.WhisperIgnoreVersion;
+        Configuration.Settings.Tools.WhisperDeleteTempFiles = stt.WhisperDeleteTempFiles;
+        Configuration.Settings.Tools.WhisperModel = stt.WhisperModel;
+        Configuration.Settings.Tools.WhisperLanguageCode = stt.WhisperLanguageCode;
+        Configuration.Settings.Tools.WhisperLocation = stt.WhisperLocation;
+        Configuration.Settings.Tools.WhisperCtranslate2Location = stt.WhisperCtranslate2Location;
+        Configuration.Settings.Tools.WhisperPurfviewFasterWhisperLocation = stt.WhisperPurfviewFasterWhisperLocation;
+        Configuration.Settings.Tools.WhisperPurfviewFasterWhisperDefaultCmd = stt.WhisperPurfviewFasterWhisperDefaultCmd;
+        Configuration.Settings.Tools.WhisperXLocation = stt.WhisperXLocation;
+        Configuration.Settings.Tools.WhisperStableTsLocation = stt.WhisperStableTsLocation;
+        Configuration.Settings.Tools.WhisperCppModelLocation = stt.WhisperCppModelLocation;
+        Configuration.Settings.Tools.WhisperExtraSettings = stt.WhisperCustomCommandLineArguments;
+        Configuration.Settings.Tools.WhisperExtraSettingsHistory = stt.WhisperExtraSettingsHistory;
+        Configuration.Settings.Tools.WhisperAutoAdjustTimings = stt.WhisperAutoAdjustTimings;
+        Configuration.Settings.Tools.WhisperUseLineMaxChars = stt.WhisperUseLineMaxChars;
+        Configuration.Settings.Tools.WhisperPostProcessingAddPeriods = stt.WhisperPostProcessingAddPeriods;
+        Configuration.Settings.Tools.WhisperPostProcessingMergeLines = stt.WhisperPostProcessingMergeLines;
+        Configuration.Settings.Tools.WhisperPostProcessingSplitLines = stt.WhisperPostProcessingSplitLines;
+        Configuration.Settings.Tools.WhisperPostProcessingFixCasing = stt.WhisperPostProcessingFixCasing;
+        Configuration.Settings.Tools.WhisperPostProcessingFixShortDuration = stt.WhisperPostProcessingFixShortDuration;
+        Configuration.Settings.Tools.VoskPostProcessing = stt.PostProcessing;
+
+        Configuration.Settings.Tools.AutoTranslateLastName = Settings.AutoTranslate.AutoTranslateLastName;
+
+        Configuration.Settings.Tools.ImportTextSplitting = Settings.Tools.ImportTextSplitting;
+        Configuration.Settings.Tools.ImportTextSplittingLineMode = Settings.Tools.ImportTextSplittingLineMode;
+        Configuration.Settings.Tools.ImportTextLineBreak = Settings.Tools.ImportTextLineBreak;
+        Configuration.Settings.Tools.ImportTextMergeShortLines = Settings.Tools.ImportTextMergeShortLines;
+        Configuration.Settings.Tools.ImportTextAutoSplitAtBlank = Settings.Tools.ImportTextAutoSplitAtBlank;
+        Configuration.Settings.Tools.ImportTextRemoveLinesNoLetters = Settings.Tools.ImportTextRemoveLinesNoLetters;
+        Configuration.Settings.Tools.ImportTextGenerateTimeCodes = Settings.Tools.ImportTextGenerateTimeCodes;
+        Configuration.Settings.Tools.ImportTextAutoBreak = Settings.Tools.ImportTextAutoBreak;
+        Configuration.Settings.Tools.ImportTextAutoBreakAtEnd = Settings.Tools.ImportTextAutoBreakAtEnd;
+        Configuration.Settings.Tools.ImportTextGap = Settings.Tools.ImportTextGap;
+        Configuration.Settings.Tools.ImportTextAutoSplitNumberOfLines = Settings.Tools.ImportTextAutoSplitNumberOfLines;
+        Configuration.Settings.Tools.ImportTextAutoBreakAtEndMarkerText = Settings.Tools.ImportTextAutoBreakAtEndMarkerText;
+        Configuration.Settings.Tools.ImportTextDurationAuto = Settings.Tools.ImportTextDurationAuto;
+        Configuration.Settings.Tools.ImportTextFixedDuration = Settings.Tools.ImportTextFixedDuration;
+        Configuration.Settings.Tools.TextToSpeechOutputFolder = Settings.Tools.TextToSpeechOutputFolder;
+
+        var dc = Settings.File.DCinemaSmpte;
+        var ss = Configuration.Settings.SubtitleSettings;
+        ss.DCinemaAutoGenerateSubtitleId = dc.DCinemaAutoGenerateSubtitleId;
+        ss.DCinemaFontSize = dc.DCinemaFontSize;
+        ss.DCinemaBottomMargin = dc.DCinemaBottomMargin;
+        ss.DCinemaFadeUpTime = dc.DCinemaFadeUpTime;
+        ss.DCinemaFadeDownTime = dc.DCinemaFadeDownTime;
+        ss.CurrentDCinemaSubtitleId = dc.CurrentDCinemaSubtitleId;
+        ss.CurrentDCinemaMovieTitle = dc.CurrentDCinemaMovieTitle;
+        ss.CurrentDCinemaReelNumber = dc.CurrentDCinemaReelNumber;
+        ss.CurrentDCinemaIssueDate = dc.CurrentDCinemaIssueDate;
+        ss.CurrentDCinemaLanguage = dc.CurrentDCinemaLanguage;
+        ss.CurrentDCinemaEditRate = dc.CurrentDCinemaEditRate;
+        ss.CurrentDCinemaTimeCodeRate = dc.CurrentDCinemaTimeCodeRate;
+        ss.CurrentDCinemaStartTime = dc.CurrentDCinemaStartTime;
+        ss.CurrentDCinemaFontId = dc.CurrentDCinemaFontId;
+        ss.CurrentDCinemaFontUri = dc.CurrentDCinemaFontUri;
+        ss.CurrentDCinemaFontEffect = dc.CurrentDCinemaFontEffect;
+        ss.CurrentDCinemaFontSize = dc.CurrentDCinemaFontSize;
+        if (!string.IsNullOrEmpty(dc.CurrentDCinemaFontColor))
+        {
+            try { ss.CurrentDCinemaFontColor = dc.CurrentDCinemaFontColor.FromHex(); } catch { }
+        }
+        if (!string.IsNullOrEmpty(dc.CurrentDCinemaFontEffectColor))
+        {
+            try { ss.CurrentDCinemaFontEffectColor = dc.CurrentDCinemaFontEffectColor.FromHex(); } catch { }
+        }
+    }
+
+    public static string GetErrorLogFilePath()
+    {
+        return Path.Combine(DataFolder, "error-log.txt");
+    }
+
+    public static string GetSpeechToTextLogFilePath()
+    {
+        return Path.Combine(DataFolder, "speech-to-text-log.txt");
+    }
+
+    public static void WriteSpeechToTextLog(string log)
+    {
+        try
+        {
+            var filePath = GetSpeechToTextLogFilePath();
+            using var writer = new StreamWriter(filePath, true, Encoding.UTF8);
+            writer.WriteLine("-----------------------------------------------------------------------------");
+            writer.WriteLine($"Date: {DateTime.Now.ToString(CultureInfo.InvariantCulture)}");
+            writer.WriteLine($"SE: {GetSeInfo()}");
+            writer.WriteLine(log);
+            writer.WriteLine();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    public static void LogError(Exception exception)
+    {
+        LogError(exception.Message + Environment.NewLine + exception.StackTrace);
+    }
+
+    public static void LogError(Exception exception, string message)
+    {
+        LogError(exception.Message + Environment.NewLine + message + Environment.NewLine + exception.StackTrace);
+    }
+
+    public static void LogError(string error)
+    {
+        try
+        {
+            var filePath = GetErrorLogFilePath();
+            using var writer = new StreamWriter(filePath, true, Encoding.UTF8);
+            writer.WriteLine("-----------------------------------------------------------------------------");
+            writer.WriteLine($"Date: {DateTime.Now.ToString(CultureInfo.InvariantCulture)}");
+            writer.WriteLine($"SE: {GetSeInfo()}");
+            writer.WriteLine(error);
+            writer.WriteLine();
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+}
