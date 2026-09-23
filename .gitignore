@@ -412,3 +412,6 @@ FodyWeavers.xsd
 
 # Claude AI settings (local, not project config)
 .claude/
+
+# Vosk speech models
+vosk-model-*.zip

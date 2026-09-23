@@ -198,12 +198,14 @@ public class BatchConvertConfig
         public TranslationPair SourceLanguage { get; internal set; }
         public TranslationPair TargetLanguage { get; internal set; }
         public IAutoTranslator Translator { get; internal set; }
+        public bool SaveOriginalAlso { get; set; }
 
         public AutoTranslateSettings()
         {
             SourceLanguage = new TranslationPair("English", "en");
             TargetLanguage = new TranslationPair("Spanish", "es");
             Translator = new OllamaTranslate();
+            SaveOriginalAlso = false;
         }
     }
 

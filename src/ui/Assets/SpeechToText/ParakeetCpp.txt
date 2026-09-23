@@ -1,0 +1,59 @@
+Parakeet.cpp Speech Recognition Engine
+
+**STATUS: VERIFICATION IN PROGRESS**
+
+This engine requires real-world testing to verify its output contract.
+
+## Known CLI Syntax
+```
+parakeet <model.safetensors> <audio.wav> --vocab <vocab.txt> [options]
+```
+
+## Verified Behavior
+- Model file: model.safetensors
+- Vocab file: vocab.txt
+- Input format: WAV (16kHz mono recommended)
+- No output path parameter in CLI
+
+## UNKNOWN - Requires Verification
+The following MUST be verified with a real execution:
+
+1. **Output Filename**: What file is created? (e.g., audio.wav.srt, audio.srt, output.srt, or none?)
+2. **Output Format**: SRT? Plain text? JSON? VTT?
+3. **Timestamp Format**: SRT format (00:00:00,000 --> 00:00:05,000)? Or different?
+4. **Output Location**: Beside input file? Same directory as model? Current working directory?
+5. **Encoding**: UTF-8? ASCII? Windows-1252?
+6. **stdout Output**: Does it print to stdout?
+7. **stderr Output**: Does it print progress/errors to stderr?
+8. **Progress Format**: Percentage? Frame count? None?
+9. **Exit Codes**: 0 = success? Non-zero = failure?
+10. **Streaming**: Does output stream as it processes, or only at the end?
+
+## Verification Command
+To verify Parakeet behavior, run:
+```bash
+# Create a test audio file (1-2 seconds)
+ffmpeg -f lavfi -i "sine=frequency=440:duration=1" -ar 16000 -ac 1 test.wav
+
+# Run Parakeet
+parakeet.exe path/to/model.safetensors test.wav --vocab path/to/vocab.txt
+
+# Check what was created
+dir test.*
+# or on Linux: ls -la test.*
+```
+
+## Expected Certification Report Format
+| Item             | Expected | Actual |
+| ---------------- | -------- | ------ |
+| Output filename  | ?        | ?      |
+| Output extension | ?        | ?      |
+| Output format    | ?        | ?      |
+| Timestamp format | ?        | ?      |
+| Encoding         | ?        | ?      |
+| stdout content   | ?        | ?      |
+| stderr content   | ?        | ?      |
+| Exit code        | ?        | ?      |
+| Progress format  | ?        | ?      |
+
+Project: https://github.com/Frikallo/parakeet.cpp

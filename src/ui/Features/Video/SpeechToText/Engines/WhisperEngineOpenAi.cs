@@ -104,4 +104,22 @@ public class WhisperEngineOpenAi : ISpeechToTextEngine
         get => Se.Settings.Tools.AudioToText.CommandLineParameterOpenAi;
         set => Se.Settings.Tools.AudioToText.CommandLineParameterOpenAi = value;
     }
+
+    public SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = false,
+        SupportsAutoTranslate = true,
+        SupportsBilingualOutput = true,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = false,
+        SupportsForcedAlignerSelection = false,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = false,
+        IsFastStartup = false,
+        Description = "OpenAI Whisper - Requires Python, high quality"
+    };
 }

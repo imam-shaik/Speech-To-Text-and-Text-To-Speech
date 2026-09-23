@@ -73,6 +73,14 @@ public partial class BatchConvertViewModel : ObservableObject
     [ObservableProperty] private bool _isRemoveVisible;
     [ObservableProperty] private bool _isOpenContainingFolderVisible;
 
+    [ObservableProperty] private int _totalCount;
+    [ObservableProperty] private int _completedCount;
+    [ObservableProperty] private int _failedCount;
+    [ObservableProperty] private int _cancelledCount;
+    [ObservableProperty] private int _remainingCount;
+
+    public DataGrid? BatchGrid { get; internal set; }
+
     // Add formatting
     [ObservableProperty] private bool _formattingAddItalic;
     [ObservableProperty] private bool _formattingAddBold;
@@ -154,6 +162,7 @@ public partial class BatchConvertViewModel : ObservableObject
     [ObservableProperty] private bool _autoTranslateModelBrowseIsVisible;
     [ObservableProperty] private bool _autoTranslateUrlIsVisible;
     [ObservableProperty] private bool _autoTranslateApiKeyIsVisible;
+    [ObservableProperty] private bool _autoTranslateSaveOriginalAlso;
 
     // Fix common errors
     [ObservableProperty] private FixCommonErrors.ProfileDisplayItem? _fixCommonErrorsProfile;
@@ -225,6 +234,8 @@ public partial class BatchConvertViewModel : ObservableObject
     private List<BatchConvertItem> _allBatchItems;
     private readonly System.Timers.Timer _filesTimer;
     private bool _isFilesDirty;
+    private string _sortColumn = "QueuePosition";
+    private bool _sortDescending;
     private readonly IWindowService _windowService;
     private readonly IFileHelper _fileHelper;
     private readonly IFolderHelper _folderHelper;
@@ -395,7 +406,7 @@ public partial class BatchConvertViewModel : ObservableObject
                 if (_isFilesDirty)
                 {
                     _isFilesDirty = false;
-                    UpdateFilteredFiles();
+                    SortBatchItems();
                 }
 
                 _filesTimer.Start();
@@ -431,6 +442,55 @@ public partial class BatchConvertViewModel : ObservableObject
         {
             BatchItems.AddRange(_allBatchItems);
         }
+    }
+
+    private void SortBatchItems()
+    {
+        _allBatchItems.Sort((a, b) => NaturalStringComparer.Native.Compare(
+            Path.GetFileName(a.FileName),
+            Path.GetFileName(b.FileName)));
+
+        BatchItems.Clear();
+        int position = 1;
+        if (SelectedFilterItem == Se.Language.Tools.BatchConvert.FileNameContainsDotDotDot && !string.IsNullOrEmpty(FilterText))
+        {
+            foreach (var item in _allBatchItems)
+            {
+                if (item.FileName.Contains(FilterText, StringComparison.InvariantCultureIgnoreCase))
+                {
+                    item.QueuePosition = position++;
+                    BatchItems.Add(item);
+                }
+            }
+        }
+        else if (SelectedFilterItem == Se.Language.Tools.BatchConvert.TrackLanguageContainsDotDotDot && !string.IsNullOrEmpty(FilterText))
+        {
+            foreach (var item in _allBatchItems)
+            {
+                if (item.Format.Contains(FilterText, StringComparison.InvariantCultureIgnoreCase))
+                {
+                    item.QueuePosition = position++;
+                    BatchItems.Add(item);
+                }
+            }
+        }
+        else
+        {
+            foreach (var item in _allBatchItems)
+            {
+                item.QueuePosition = position++;
+                BatchItems.Add(item);
+            }
+        }
+    }
+
+    private void UpdateBatchSummary()
+    {
+        TotalCount = _allBatchItems.Count;
+        CompletedCount = _allBatchItems.Count(p => p.Status == BatchConvertStatus.Completed);
+        FailedCount = _allBatchItems.Count(p => p.Status == BatchConvertStatus.Failed);
+        CancelledCount = _allBatchItems.Count(p => p.Status == BatchConvertStatus.Cancelled);
+        RemainingCount = TotalCount - CompletedCount - FailedCount - CancelledCount;
     }
 
     private static FixCommonErrors.ProfileDisplayItem LoadDefaultProfile()
@@ -483,6 +543,7 @@ public partial class BatchConvertViewModel : ObservableObject
         Se.Settings.Tools.BatchConvert.AutoTranslateEngine = SelectedAutoTranslator.Name;
         Se.Settings.Tools.BatchConvert.AutoTranslateSourceLanguage = SelectedSourceLanguage?.TwoLetterIsoLanguageName ?? "auto";
         Se.Settings.Tools.BatchConvert.AutoTranslateTargetLanguage = SelectedTargetLanguage?.TwoLetterIsoLanguageName ?? "en";
+        Se.Settings.Tools.BatchConvert.AutoTranslateSaveOriginalAlso = AutoTranslateSaveOriginalAlso;
 
         // Change casing
         if (NormalCasing)
@@ -630,6 +691,8 @@ public partial class BatchConvertViewModel : ObservableObject
         {
             SelectedTargetLanguage = targetLanguage;
         }
+
+        AutoTranslateSaveOriginalAlso = Se.Settings.Tools.BatchConvert.AutoTranslateSaveOriginalAlso;
 
         // Change casing
         if (Se.Settings.Tools.BatchConvert.ChangeCasingType == "Normal")
@@ -816,11 +879,11 @@ public partial class BatchConvertViewModel : ObservableObject
         IsConverting = false;
         foreach (var batchItem in BatchItems)
         {
-            if (batchItem.Status != "-" &&
-                batchItem.Status != Se.Language.General.Converted &&
-                batchItem.Status != Se.Language.General.Error)
+            if (batchItem.Status != BatchConvertStatus.Queued &&
+                batchItem.Status != BatchConvertStatus.Completed &&
+                batchItem.Status != BatchConvertStatus.Failed)
             {
-                batchItem.Status = Se.Language.General.Cancelled;
+                batchItem.Status = BatchConvertStatus.Cancelled;
             }
         }
 
@@ -839,9 +902,12 @@ public partial class BatchConvertViewModel : ObservableObject
         _cancellationTokenSource = new CancellationTokenSource();
         _cancellationToken = _cancellationTokenSource.Token;
 
-        foreach (var batchItem in BatchItems)
+        var itemsToProcess = BatchItems.ToList();
+        var totalCount = itemsToProcess.Count;
+
+        foreach (var batchItem in itemsToProcess)
         {
-            batchItem.Status = "-";
+            batchItem.Status = BatchConvertStatus.Queued;
         }
 
         SaveSettings();
@@ -859,15 +925,23 @@ public partial class BatchConvertViewModel : ObservableObject
         IsProgressVisible = true;
         IsConverting = true;
         AreControlsEnabled = false;
-        ProgressMaxValue = BatchItems.Count;
+        ProgressMaxValue = totalCount;
+        _filesTimer.Stop();
+
         _ = Task.Run(async () =>
         {
             var count = 1;
-            foreach (var batchItem in BatchItems)
+            foreach (var batchItem in itemsToProcess)
             {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    BatchGrid?.ScrollIntoView(batchItem, null);
+                    BatchGrid?.InvalidateVisual();
+                });
+
                 var countDisplay = count;
-                ProgressText = string.Format(Se.Language.General.ConvertingXofYDotDoDot, countDisplay, BatchItems.Count);
-                ProgressValue = countDisplay / (double)BatchItems.Count;
+                ProgressText = string.Format(Se.Language.General.ConvertingXofYDotDoDot, countDisplay, totalCount);
+                ProgressValue = countDisplay / (double)totalCount;
 
                 if (batchItem.Format!.StartsWith("Transport Stream", StringComparison.Ordinal))
                 {
@@ -900,13 +974,26 @@ public partial class BatchConvertViewModel : ObservableObject
             AreControlsEnabled = true;
             ProgressText = string.Empty;
 
+            await Dispatcher.UIThread.InvokeAsync(() => _filesTimer.Start());
+            await Dispatcher.UIThread.InvokeAsync(() => UpdateBatchSummary());
+
             var end = DateTime.UtcNow.Ticks;
             var elapsed = new TimeSpan(end - start).TotalMilliseconds;
-            var message = string.Format(Se.Language.General.XFilesConvertedInY, BatchItems.Count, elapsed);
-            if (_cancellationToken.IsCancellationRequested)
-            {
-                message += Environment.NewLine + Se.Language.General.ConversionCancelledByUser;
-            }
+            var elapsedTime = TimeSpan.FromMilliseconds(elapsed);
+            var elapsedStr = elapsedTime.TotalHours >= 1
+                ? $"{(int)elapsedTime.TotalHours}h {elapsedTime.Minutes}m"
+                : elapsedTime.TotalMinutes >= 1
+                    ? $"{elapsedTime.Minutes}m {elapsedTime.Seconds}s"
+                    : $"{elapsedTime.Seconds}s";
+
+            var cancelledNote = _cancellationToken.IsCancellationRequested ? $" ({Se.Language.General.ConversionCancelledByUser})" : string.Empty;
+
+            var message = $"Batch Conversion Complete{Environment.NewLine}" +
+                          $"Files Processed: {totalCount}{Environment.NewLine}" +
+                          $"Completed: {CompletedCount}{Environment.NewLine}" +
+                          $"Failed: {FailedCount}{Environment.NewLine}" +
+                          $"Cancelled: {CancelledCount}{cancelledNote}{Environment.NewLine}" +
+                          $"Elapsed Time: {elapsedStr}";
 
             await ShowStatus(message);
         }, _cancellationToken);
@@ -1322,8 +1409,8 @@ public partial class BatchConvertViewModel : ObservableObject
             }
         }
 
+        SortBatchItems();
         MakeBatchItemsInfo();
-        _isFilesDirty = true;
     }
 
     [RelayCommand]
@@ -1517,6 +1604,8 @@ public partial class BatchConvertViewModel : ObservableObject
         {
             BatchItemsInfo = string.Format(Se.Language.General.XFiles, BatchItems.Count);
         }
+
+        UpdateBatchSummary();
     }
 
     [RelayCommand]
@@ -1591,6 +1680,55 @@ public partial class BatchConvertViewModel : ObservableObject
         BatchItems.Clear();
         _allBatchItems.Clear();
         MakeBatchItemsInfo();
+    }
+
+    public void SortByColumn(string columnName, bool descending)
+    {
+        if (IsConverting)
+        {
+            return;
+        }
+
+        _sortColumn = columnName;
+        _sortDescending = descending;
+
+        Comparison<BatchConvertItem> comparison = columnName switch
+        {
+            "QueuePosition" => (a, b) => descending
+                ? b.QueuePosition.CompareTo(a.QueuePosition)
+                : a.QueuePosition.CompareTo(b.QueuePosition),
+            "FolderName" => (a, b) => descending
+                ? NaturalStringComparer.Native.Compare(b.FolderName, a.FolderName)
+                : NaturalStringComparer.Native.Compare(a.FolderName, b.FolderName),
+            "FileName" => (a, b) => descending
+                ? NaturalStringComparer.Native.Compare(Path.GetFileName(b.FileName), Path.GetFileName(a.FileName))
+                : NaturalStringComparer.Native.Compare(Path.GetFileName(a.FileName), Path.GetFileName(b.FileName)),
+            "Size" => (a, b) => descending
+                ? b.Size.CompareTo(a.Size)
+                : a.Size.CompareTo(b.Size),
+            "Format" => (a, b) => descending
+                ? NaturalStringComparer.Native.Compare(b.Format, a.Format)
+                : NaturalStringComparer.Native.Compare(a.Format, b.Format),
+            "Status" => (a, b) => descending
+                ? b.Status.CompareTo(a.Status)
+                : a.Status.CompareTo(b.Status),
+            _ => (a, b) => 0
+        };
+
+        _allBatchItems.Sort(comparison);
+
+        BatchItems.Clear();
+        int position = 1;
+        foreach (var item in _allBatchItems)
+        {
+            item.QueuePosition = position++;
+            BatchItems.Add(item);
+        }
+    }
+
+    public void OnDataGridSorting(string columnName, bool descending)
+    {
+        SortByColumn(columnName, descending);
     }
 
     [RelayCommand]
@@ -1680,6 +1818,7 @@ public partial class BatchConvertViewModel : ObservableObject
                 Translator = SelectedAutoTranslator,
                 SourceLanguage = SelectedSourceLanguage ?? SourceLanguages.First(),
                 TargetLanguage = SelectedTargetLanguage ?? TargetLanguages.First(),
+                SaveOriginalAlso = AutoTranslateSaveOriginalAlso,
             },
 
             ChangeCasing = new BatchConvertConfig.ChangeCasingSettings

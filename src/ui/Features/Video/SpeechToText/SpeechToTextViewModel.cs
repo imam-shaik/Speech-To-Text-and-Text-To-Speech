@@ -10,6 +10,7 @@ using Nikse.SubtitleEdit.Core.SubtitleFormats;
 using Nikse.SubtitleEdit.Features.Shared;
 using Nikse.SubtitleEdit.Features.Shared.GetAudioClips;
 using Nikse.SubtitleEdit.Features.Video.SpeechToText.Engines;
+using Nikse.SubtitleEdit.Features.Video.SpeechToText.Pipeline;
 using Nikse.SubtitleEdit.Logic;
 using Nikse.SubtitleEdit.Logic.Config;
 using Nikse.SubtitleEdit.Logic.Download;
@@ -50,9 +51,60 @@ public partial class SpeechToTextViewModel : ObservableObject
     [ObservableProperty] private bool _doAdjustTimings;
     [ObservableProperty] private bool _doPostProcessing;
 
+    [ObservableProperty] private TranscriptionMode _selectedTranscriptionMode;
+
+    public bool IsTranscriptionModeAutomatic
+    {
+        get => SelectedTranscriptionMode == TranscriptionMode.Automatic;
+        set
+        {
+            if (value)
+            {
+                SelectedTranscriptionMode = TranscriptionMode.Automatic;
+                OnPropertyChanged(nameof(IsTranscriptionModeAutomatic));
+                OnPropertyChanged(nameof(IsTranscriptionModeChunked));
+                OnPropertyChanged(nameof(IsTranscriptionModeLegacy));
+            }
+        }
+    }
+
+    public bool IsTranscriptionModeChunked
+    {
+        get => SelectedTranscriptionMode == TranscriptionMode.Chunked;
+        set
+        {
+            if (value)
+            {
+                SelectedTranscriptionMode = TranscriptionMode.Chunked;
+                OnPropertyChanged(nameof(IsTranscriptionModeAutomatic));
+                OnPropertyChanged(nameof(IsTranscriptionModeChunked));
+                OnPropertyChanged(nameof(IsTranscriptionModeLegacy));
+            }
+        }
+    }
+
+    public bool IsTranscriptionModeLegacy
+    {
+        get => SelectedTranscriptionMode == TranscriptionMode.Legacy;
+        set
+        {
+            if (value)
+            {
+                SelectedTranscriptionMode = TranscriptionMode.Legacy;
+                OnPropertyChanged(nameof(IsTranscriptionModeAutomatic));
+                OnPropertyChanged(nameof(IsTranscriptionModeChunked));
+                OnPropertyChanged(nameof(IsTranscriptionModeLegacy));
+            }
+        }
+    }
+
     [ObservableProperty] private string _parameters;
 
     [ObservableProperty] private string _consoleLog;
+
+    [ObservableProperty] private ObservableCollection<string> _consoleLogLines = new();
+
+    [ObservableProperty] private ObservableCollection<string> _transcriptLines = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsCancelAllVisible))]
@@ -76,6 +128,23 @@ public partial class SpeechToTextViewModel : ObservableObject
     [ObservableProperty] private ObservableCollection<ForcedAlignerOption> _forcedAligners;
     [ObservableProperty] private ForcedAlignerOption? _selectedForcedAligner;
     [ObservableProperty] private double _progressOpacity;
+
+    [ObservableProperty] private string _engineDescription = string.Empty;
+    [ObservableProperty] private string _engineCapabilitiesSummary = string.Empty;
+    [ObservableProperty] private bool _isTranslateDuringTranscriptionVisible;
+    [ObservableProperty] private bool _isAutoTranslateVisible;
+    [ObservableProperty] private bool _isBilingualOutputVisible;
+    [ObservableProperty] private bool _isResumeVisible;
+    [ObservableProperty] private bool _isChunkedModeVisible = true;
+    [ObservableProperty] private bool _isLegacyModeVisible = true;
+    [ObservableProperty] private bool _isSceneAwareSplittingVisible = true;
+    [ObservableProperty] private bool _isCustomCommandLineVisible = true;
+    [ObservableProperty] private bool _isOriginalSubtitleOutputVisible = true;
+    [ObservableProperty] private bool _isTranslatedSubtitleOutputVisible = true;
+
+    [ObservableProperty] private string _liveTranscriptText = string.Empty;
+    [ObservableProperty] private bool _isLiveTranscriptVisible;
+    [ObservableProperty] private string _currentProcessingStatus = string.Empty;
 
     [ObservableProperty] private double _progressValue;
     [ObservableProperty] private string _progressText;
@@ -157,6 +226,7 @@ public partial class SpeechToTextViewModel : ObservableObject
     [ObservableProperty] private bool _doAutoTranslate;
     [ObservableProperty] private ObservableCollection<string> _targetLanguages = new() { "English", "Telugu", "Hindi" };
     [ObservableProperty] private string _selectedTargetLanguage = "English";
+    [ObservableProperty] private bool _doGenerateBilingual;
     [ObservableProperty] private bool _doSceneAwareSplitting;
     private bool _abortBatch;
     public bool IsCancelAllVisible => !IsTranscribeEnabled && IsBatchMode;
@@ -187,6 +257,7 @@ public partial class SpeechToTextViewModel : ObservableObject
         }
 
         Engines.Add(new WhisperEngineOpenAi());
+        Engines.Add(new ParakeetCppEngine());
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -195,6 +266,7 @@ public partial class SpeechToTextViewModel : ObservableObject
         }
 
         Engines.Add(new CrispAsrEngine());
+        Engines.Add(new VoskEngine());
 
         SelectedEngine = Engines[0];
 
@@ -217,6 +289,8 @@ public partial class SpeechToTextViewModel : ObservableObject
         IsCrispAsrSelected = false;
         Parameters = string.Empty;
         ConsoleLog = string.Empty;
+        ConsoleLogLines.Clear();
+        TranscriptLines.Clear();
         ProgressText = string.Empty;
         ElapsedText = string.Empty;
         EstimatedText = string.Empty;
@@ -242,6 +316,7 @@ public partial class SpeechToTextViewModel : ObservableObject
         DoTranslateToEnglish = false;
         DoAdjustTimings = Se.Settings.Tools.AudioToText.WhisperAutoAdjustTimings;
         DoPostProcessing = Se.Settings.Tools.AudioToText.PostProcessing;
+        SelectedTranscriptionMode = Se.Settings.Tools.AudioToText.TranscriptionMode;
 
         var savedChoice = Se.Settings.Tools.AudioToText.WhisperChoice;
         var whisperCppEngine = Engines.OfType<WhisperCppEngine>().FirstOrDefault();
@@ -272,6 +347,7 @@ public partial class SpeechToTextViewModel : ObservableObject
     {
         Se.Settings.Tools.AudioToText.WhisperAutoAdjustTimings = DoAdjustTimings;
         Se.Settings.Tools.AudioToText.PostProcessing = DoPostProcessing;
+        Se.Settings.Tools.AudioToText.TranscriptionMode = SelectedTranscriptionMode;
         var engine = GetEffectiveSelectedEngine();
         engine.CommandLineParameter = Parameters;
         Se.Settings.Tools.AudioToText.WhisperChoice = engine.Choice;
@@ -295,6 +371,19 @@ public partial class SpeechToTextViewModel : ObservableObject
     private static bool IsTranslateAvailable(ISpeechToTextEngine engine)
     {
         return engine is not ChatLlmCppEngine and not Qwen3AsrCppEngine and not ICrispAsrEngine;
+    }
+
+    private static string BuildCapabilitiesSummary(ISpeechToTextEngine engine, SpeechToTextEngineCapabilities caps)
+    {
+        var lines = new List<string>();
+        if (caps.IsOffline) lines.Add("Offline");
+        if (caps.IsFastStartup) lines.Add("Fast startup");
+        if (caps.SupportsTranslateDuringTranscription) lines.Add("Translate during recognition");
+        if (caps.SupportsAutoTranslate) lines.Add("Post-translation");
+        if (caps.SupportsBilingualOutput) lines.Add("Bilingual output");
+        if (caps.SupportsChunkedTranscription) lines.Add("Chunked transcription");
+        if (caps.SupportsResumeFromCheckpoint) lines.Add("Resume support");
+        return string.Join(" • ", lines);
     }
 
     private void UpdateBackendSelectionUi()
@@ -500,6 +589,188 @@ public partial class SpeechToTextViewModel : ObservableObject
         EngineChanged();
     }
 
+    private DateTime _lastTranscriptLog = DateTime.MinValue;
+    private string _lastTranscriptPreview = string.Empty;
+    private readonly List<string> _recentTranscripts = new();
+    private const int MaxRecentTranscripts = 20;
+    private const int MaxConsoleLines = 500;
+    private DateTime _lastProgressUpdate = DateTime.MinValue;
+    private TranscriptionProgress? _pendingProgress;
+    private readonly TimeSpan _minProgressInterval = TimeSpan.FromMilliseconds(200);
+    private System.Timers.Timer? _progressThrottleTimer;
+    private readonly object _progressLock = new();
+
+    private void OnChunkProgressChanged(object? sender, TranscriptionProgress e)
+    {
+        ChunkTrace($"[PROGRESS] Stage={e.Stage}, Chunk={e.CurrentChunk}/{e.TotalChunks}, EnginePct={e.EnginePercent}");
+
+        lock (_progressLock)
+        {
+            _pendingProgress = e;
+        }
+
+        var now = DateTime.Now;
+        if (now - _lastProgressUpdate >= _minProgressInterval)
+        {
+            _lastProgressUpdate = now;
+            var pending = _pendingProgress;
+            Dispatcher.UIThread.Invoke(() => ApplyProgressUpdate(pending));
+        }
+        else if (_progressThrottleTimer == null || !_progressThrottleTimer.Enabled)
+        {
+            StartProgressThrottleTimer();
+        }
+    }
+
+    private void StartProgressThrottleTimer()
+    {
+        _progressThrottleTimer?.Dispose();
+        _progressThrottleTimer = new System.Timers.Timer(250);
+        _progressThrottleTimer.Elapsed += (_, _) =>
+        {
+            TranscriptionProgress? pending;
+            lock (_progressLock)
+            {
+                pending = _pendingProgress;
+            }
+            if (pending != null)
+            {
+                Dispatcher.UIThread.Invoke(() => ApplyProgressUpdate(pending));
+            }
+            _progressThrottleTimer?.Stop();
+        };
+        _progressThrottleTimer.Start();
+    }
+
+    private void ApplyProgressUpdate(TranscriptionProgress e)
+    {
+        if (e == null) return;
+
+        if (e.Stage == TranscriptionStage.Complete)
+        {
+            OnTranscriptionComplete(e);
+            return;
+        }
+
+        var chunkDisplay = e.CurrentChunk >= 0
+            ? $"Chunk {e.CurrentChunk + 1} of {e.TotalChunks}"
+            : "Processing...";
+
+        if (e.EnginePercent >= 0)
+        {
+            ProgressText = $"{e.Stage}: {chunkDisplay}, Recognition: {e.EnginePercent:0}%";
+        }
+        else
+        {
+            ProgressText = $"{e.Stage}: {chunkDisplay}";
+        }
+
+        CurrentProcessingStatus = GetStatusText(e);
+        IsLiveTranscriptVisible = true;
+
+        if (e.CurrentChunk > 0)
+        {
+            ElapsedText = $"Elapsed: {new TimeCode(e.Elapsed.TotalMilliseconds).ToShortDisplayString()}";
+            if (e.EstimatedRemaining > TimeSpan.Zero)
+            {
+                EstimatedText = $"ETA: {Logic.ProgressHelper.ToProgressTime(e.EstimatedRemaining.TotalMilliseconds)}";
+            }
+        }
+        else
+        {
+            ElapsedText = string.Empty;
+            EstimatedText = string.Empty;
+        }
+
+        if (!string.IsNullOrEmpty(e.CurrentSubtitlePreview))
+        {
+            var now = DateTime.Now;
+            var timeSinceLastLog = (now - _lastTranscriptLog).TotalMilliseconds;
+
+            if (timeSinceLastLog >= 300 || e.CurrentSubtitlePreview != _lastTranscriptPreview)
+            {
+                _lastTranscriptLog = now;
+                _lastTranscriptPreview = e.CurrentSubtitlePreview;
+
+                _recentTranscripts.Add(e.CurrentSubtitlePreview);
+                while (_recentTranscripts.Count > MaxRecentTranscripts)
+                {
+                    _recentTranscripts.RemoveAt(0);
+                }
+
+                var newTranscript = string.Join(Environment.NewLine, _recentTranscripts);
+                if (newTranscript != LiveTranscriptText)
+                {
+                    LiveTranscriptText = newTranscript;
+                }
+            }
+        }
+    }
+
+    private void OnTranscriptionComplete(TranscriptionProgress e, string? outputSubtitleFileName = null)
+    {
+        ChunkTrace($"[COMPLETE] Transcription complete: {e.TotalChunks} chunks, {e.SubtitleCount} subtitles, elapsed={e.Elapsed}");
+
+        var engine = GetEffectiveSelectedEngine();
+        var elapsedStr = new TimeCode(e.Elapsed.TotalMilliseconds).ToShortDisplayString();
+
+        var summary = new StringBuilder();
+        summary.AppendLine("Completed!");
+        summary.AppendLine();
+        summary.AppendLine($"Engine: {engine.Name}");
+        summary.AppendLine($"Chunks: {e.TotalChunks}");
+        summary.AppendLine($"Subtitles: {e.SubtitleCount}");
+        summary.AppendLine($"Elapsed: {elapsedStr}");
+        summary.AppendLine();
+        summary.AppendLine("Generated files:");
+        var fileName = outputSubtitleFileName ?? LastBatchSubtitleFileName;
+        if (!string.IsNullOrEmpty(fileName))
+        {
+            summary.AppendLine("  " + fileName);
+        }
+
+        LiveTranscriptText = summary.ToString();
+        CurrentProcessingStatus = "Complete!";
+        ElapsedText = string.Empty;
+        EstimatedText = string.Empty;
+        ProgressText = $"Done in {elapsedStr}";
+        ProgressValue = 100;
+
+        if (BatchGrid != null && _batchIndex >= 0 && _batchIndex < BatchItems.Count)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                BatchGrid.InvalidateVisual();
+            });
+        }
+
+        IsTranscribeEnabled = true;
+    }
+
+    private static string GetStatusText(TranscriptionProgress e)
+    {
+        var stageText = e.Stage switch
+        {
+            TranscriptionStage.Initializing => "Initializing...",
+            TranscriptionStage.ExtractingAudio => "Extracting audio...",
+            TranscriptionStage.Transcribing => "Recognizing speech...",
+            TranscriptionStage.Translating => "Translating...",
+            TranscriptionStage.SavingCheckpoint => "Saving checkpoint...",
+            TranscriptionStage.PostProcessing => "Processing subtitles...",
+            TranscriptionStage.Complete => "Complete!",
+            TranscriptionStage.Cancelled => "Cancelled",
+            TranscriptionStage.Failed => "Failed",
+            _ => e.Stage.ToString()
+        };
+
+        if (e.TotalChunks > 0)
+        {
+            return $"{stageText} Chunk {e.CurrentChunk}/{e.TotalChunks}";
+        }
+
+        return stageText;
+    }
+
     private void OnTimerWhisperOnElapsed(object? sender, ElapsedEventArgs args)
     {
         lock (_lockObj)
@@ -508,35 +779,54 @@ public partial class SpeechToTextViewModel : ObservableObject
             {
                 _timerWhisper.Stop();
 #pragma warning disable CA1416
-                _whisperProcess.Kill(true);
+                try
+                {
+                    if (_whisperProcess != null && !_whisperProcess.HasExited)
+                    {
+                        _whisperProcess.Kill(true);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                }
 #pragma warning restore CA1416
 
                 Dispatcher.UIThread.Invoke<Task>(async () =>
                 {
-                    ProgressOpacity = 0;
-                    var partialSub = new Subtitle();
-                    partialSub.Paragraphs.AddRange(_resultList.OrderBy(p => p.Start)
-                        .Select(p => new Paragraph(p.Text, (double)p.Start * 1000.0, (double)p.End * 1000.0)).ToList());
-
-                    if (partialSub.Paragraphs.Count > 0)
+                    try
                     {
-                        var answer = await MessageBox.Show(
-                            Window!,
-                            $"Keep partial transcription?",
-                            $"Do you want to keep {partialSub.Paragraphs.Count} lines?",
-                            MessageBoxButtons.YesNoCancel,
-                            MessageBoxIcon.Question);
+                        ProgressOpacity = 0;
+                        var partialSub = new Subtitle();
+                        partialSub.Paragraphs.AddRange(_resultList.OrderBy(p => p.Start)
+                            .Select(p => new Paragraph(p.Text, (double)p.Start * 1000.0, (double)p.End * 1000.0)).ToList());
 
-                        if (answer != MessageBoxResult.Yes)
+                        if (partialSub.Paragraphs.Count > 0)
                         {
-                            _resultList.Clear();
-                            partialSub.Paragraphs.Clear();
-                            Cancel();
-                            return;
-                        }
-                    }
+                            var answer = await MessageBox.Show(
+                                Window!,
+                                $"Keep partial transcription?",
+                                $"Do you want to keep {partialSub.Paragraphs.Count} lines?",
+                                MessageBoxButtons.YesNoCancel,
+                                MessageBoxIcon.Question);
 
-                    await MakeResult(partialSub);
+                            if (answer != MessageBoxResult.Yes)
+                            {
+                                _resultList.Clear();
+                                partialSub.Paragraphs.Clear();
+                                Cancel();
+                                return;
+                            }
+                        }
+
+                        await MakeResult(partialSub);
+                    }
+                    catch (Exception ex)
+                    {
+                        CleanupUiAfterTranscription($"Error during cancellation: {ex.Message}");
+                    }
                 });
 
                 return;
@@ -600,58 +890,66 @@ public partial class SpeechToTextViewModel : ObservableObject
 
             Dispatcher.UIThread.Invoke<Task>(async () =>
             {
-                LogToConsole($"Speech to text ({settings.WhisperChoice}) done in {_sw.Elapsed}{Environment.NewLine}");
-                ProgressValue = 100;
-
-                var hasError = false;
-                if (_incompleteModel)
+                try
                 {
-                    await MessageBox.Show(Window!, "Incomplete model",
-                        "The model is incomplete. Please download the full model.");
-                    hasError = true;
-                }
-                else if (_unknownArgument && !string.IsNullOrEmpty(settings.WhisperCustomCommandLineArguments))
-                {
-                    await MessageBox.Show(Window!, $"Unknown argument: {settings.WhisperCustomCommandLineArguments}",
-                        "Unknown argument. Please check the advanced settings.");
-                    hasError = true;
-                }
-                else if (_cudaOutOfMemory)
-                {
-                    await MessageBox.Show(Window!, $"CUDA failed",
-                        "Whisper ran out of CUDA memory - try a smaller model or run on CPU.");
-                    hasError = true;
-                }
+                    LogToConsole($"Speech to text ({settings.WhisperChoice}) done in {_sw.Elapsed}{Environment.NewLine}");
+                    ProgressValue = 100;
 
-                if (!hasError && GetResultFromSrt(_waveFileName, _videoFileName!, out var resultTexts, _outputText, _filesToDelete))
-                {
-                    _loadedFromStdOut = false;
-                    var subtitle = new Subtitle();
-                    subtitle.Paragraphs.AddRange(resultTexts
-                        .Select(p => new Paragraph(p.Text, (double)p.Start * 1000.0, (double)p.End * 1000.0)).ToList());
-
-                    var postProcessedSubtitle = PostProcess(subtitle);
-
-                    if (_audioClips != null && ResultAudioClips.Count > 0)
+                    var hasError = false;
+                    if (_incompleteModel)
                     {
-                        var outputAudioClip = ResultAudioClips.FirstOrDefault(p => p.AudioFileName == _videoFileName);
-                        if (outputAudioClip != null)
-                        {
-                            outputAudioClip.Transcription = new Subtitle(postProcessedSubtitle);
-                        }
+                        await MessageBox.Show(Window!, "Incomplete model",
+                            "The model is incomplete. Please download the full model.");
+                        hasError = true;
+                    }
+                    else if (_unknownArgument && !string.IsNullOrEmpty(settings.WhisperCustomCommandLineArguments))
+                    {
+                        await MessageBox.Show(Window!, $"Unknown argument: {settings.WhisperCustomCommandLineArguments}",
+                            "Unknown argument. Please check the advanced settings.");
+                        hasError = true;
+                    }
+                    else if (_cudaOutOfMemory)
+                    {
+                        await MessageBox.Show(Window!, $"CUDA failed",
+                            "Whisper ran out of CUDA memory - try a smaller model or run on CPU.");
+                        hasError = true;
                     }
 
-                    await MakeResult(postProcessedSubtitle);
+                    if (!hasError && GetResultFromSrt(_waveFileName, _videoFileName!, out var resultTexts, _outputText, _filesToDelete))
+                    {
+                        _loadedFromStdOut = false;
+                        var subtitle = new Subtitle();
+                        subtitle.Paragraphs.AddRange(resultTexts
+                            .Select(p => new Paragraph(p.Text, (double)p.Start * 1000.0, (double)p.End * 1000.0)).ToList());
 
-                    return;
+                        var postProcessedSubtitle = await PostProcessAsync(subtitle);
+                        ProgressText = string.Empty;
+
+                        if (_audioClips != null && ResultAudioClips.Count > 0)
+                        {
+                            var outputAudioClip = ResultAudioClips.FirstOrDefault(p => p.AudioFileName == _videoFileName);
+                            if (outputAudioClip != null)
+                            {
+                                outputAudioClip.Transcription = new Subtitle(postProcessedSubtitle);
+                            }
+                        }
+
+                        await MakeResult(postProcessedSubtitle);
+
+                        return;
+                    }
+
+                    _outputText.Enqueue("Loading result from STDOUT");
+                    var transcribedSubtitleFromStdOut = new Subtitle();
+                    transcribedSubtitleFromStdOut.Paragraphs.AddRange(_resultList.OrderBy(p => p.Start)
+                        .Select(p => new Paragraph(p.Text, (double)p.Start * 1000.0, (double)p.End * 1000.0)).ToList());
+                    _loadedFromStdOut = transcribedSubtitleFromStdOut.Paragraphs.Count > 0;
+                    await MakeResult(transcribedSubtitleFromStdOut);
                 }
-
-                _outputText.Enqueue("Loading result from STDOUT");
-                var transcribedSubtitleFromStdOut = new Subtitle();
-                transcribedSubtitleFromStdOut.Paragraphs.AddRange(_resultList.OrderBy(p => p.Start)
-                    .Select(p => new Paragraph(p.Text, (double)p.Start * 1000.0, (double)p.End * 1000.0)).ToList());
-                _loadedFromStdOut = transcribedSubtitleFromStdOut.Paragraphs.Count > 0;
-                await MakeResult(transcribedSubtitleFromStdOut);
+                catch (Exception ex)
+                {
+                    CleanupUiAfterTranscription($"Error during completion: {ex.Message}");
+                }
             });
         }
     }
@@ -685,7 +983,8 @@ public partial class SpeechToTextViewModel : ObservableObject
                 ReInsertPeriodsEtc(originalText, subtitle);
                 FixNegativeDuration(subtitle);
 
-                var postProcessedSubtitle = PostProcess(subtitle);
+                var postProcessedSubtitle = await PostProcessAsync(subtitle);
+                ProgressText = string.Empty;
 
                 if (_audioClips != null && ResultAudioClips.Count > 0)
                 {
@@ -698,9 +997,16 @@ public partial class SpeechToTextViewModel : ObservableObject
 
                 Dispatcher.UIThread.Invoke<Task>(async () =>
                 {
-                    LogToConsole($"Speech to text ({settings.WhisperChoice}) done in {_sw.Elapsed}{Environment.NewLine}");
-                    ProgressValue = 100;
-                    await MakeResult(postProcessedSubtitle);
+                    try
+                    {
+                        LogToConsole($"Speech to text ({settings.WhisperChoice}) done in {_sw.Elapsed}{Environment.NewLine}");
+                        ProgressValue = 100;
+                        await MakeResult(postProcessedSubtitle);
+                    }
+catch (Exception ex)
+                    {
+                        CleanupUiAfterTranscription($"Error during completion: {ex.Message}");
+                    }
                 });
             }
 
@@ -840,7 +1146,8 @@ public partial class SpeechToTextViewModel : ObservableObject
             }
 
             FixNegativeDuration(subtitle);
-            var postProcessedSubtitle = PostProcess(subtitle);
+            var postProcessedSubtitle = await PostProcessAsync(subtitle);
+            ProgressText = string.Empty;
 
             if (_audioClips != null && ResultAudioClips.Count > 0)
             {
@@ -853,18 +1160,34 @@ public partial class SpeechToTextViewModel : ObservableObject
 
             Dispatcher.UIThread.Invoke<Task>(async () =>
             {
-                LogToConsole($"Speech to text ({settings.WhisperChoice}) done in {_sw.Elapsed}{Environment.NewLine}");
-                ProgressValue = 100;
-                await MakeResult(postProcessedSubtitle);
+                try
+                {
+                    LogToConsole($"Speech to text ({settings.WhisperChoice}) done in {_sw.Elapsed}{Environment.NewLine}");
+                    ProgressValue = 100;
+                    await MakeResult(postProcessedSubtitle);
+                }
+                catch (Exception ex)
+                {
+                    CleanupUiAfterTranscription($"Error during completion: {ex.Message}");
+                }
             });
         }
         catch (Exception ex)
         {
             Dispatcher.UIThread.Invoke<Task>(async () =>
             {
-                LogToConsole($"Speech to text ({settings.WhisperChoice}) failed: {ex.Message}{Environment.NewLine}");
-                ProgressValue = 100;
-                IsTranscribeEnabled = true;
+                try
+                {
+                    LogToConsole($"Speech to text ({settings.WhisperChoice}) failed: {ex.Message}{Environment.NewLine}");
+                    ProgressValue = 100;
+                    IsTranscribeEnabled = true;
+                    ProgressText = string.Empty;
+                    ElapsedText = string.Empty;
+                }
+                catch (Exception innerEx)
+                {
+                    LogToConsole($"Error during failure handler: {innerEx.Message}" + Environment.NewLine);
+                }
                 await Task.CompletedTask;
             });
         }
@@ -979,16 +1302,20 @@ public partial class SpeechToTextViewModel : ObservableObject
 
     private void StartNext(Subtitle? transcribedSubtitle)
     {
+        PipelineTrace("[TRACE01] Entered StartNext()");
         var currentItem = BatchItems[_batchIndex];
         if (transcribedSubtitle != null && transcribedSubtitle.Paragraphs.Count > 0)
         {
             currentItem.Status = Se.Language.General.Converted;
+            PipelineTrace("[TRACE02] Status -> Converted");
             var subtitleFileName = string.IsNullOrEmpty(currentItem.OutputSubtitleFileName) 
                 ? GetSubtitleFileName(currentItem.InputVideoFileName) 
                 : currentItem.OutputSubtitleFileName;
+            PipelineTrace($"[TRACE03] Writing subtitle to: {subtitleFileName}");
             var format = new SubRip();
             var text = format.ToText(transcribedSubtitle, string.Empty);
             File.WriteAllText(subtitleFileName, text);
+            PipelineTrace("[TRACE04] Subtitle saved");
             LastBatchSubtitleFileName = subtitleFileName;
         }
 
@@ -997,6 +1324,7 @@ public partial class SpeechToTextViewModel : ObservableObject
         _filesToDelete.Clear();
 
         _batchIndex++;
+        PipelineTrace($"[TRACE05] _batchIndex={_batchIndex}, BatchItems.Count={BatchItems.Count}");
         if (_batchIndex < BatchItems.Count)
         {
             ProgressValue = 0;
@@ -1005,6 +1333,8 @@ public partial class SpeechToTextViewModel : ObservableObject
             _showProgressPct = -1;
             _outputText.Clear();
             ConsoleLog = string.Empty;
+            ConsoleLogLines.Clear();
+            TranscriptLines.Clear();
             ProgressText = string.Empty;
             ElapsedText = string.Empty;
             EstimatedText = string.Empty;
@@ -1032,47 +1362,62 @@ public partial class SpeechToTextViewModel : ObservableObject
             });
 
             var startGenerateWaveFileOk = GenerateWavFile(_videoFileName, _audioTrackNumber);
+            PipelineTrace("[TRACE06] StartNext: starting next batch item, returning");
             return;
         }
 
         var convertedJobs = Enumerable.Count<SpeechToTextJobItem>(BatchItems, p => p.Status == Se.Language.General.Converted);
         var failed = Enumerable.Count<SpeechToTextJobItem>(BatchItems, p => p.Status != Se.Language.General.Converted);
+        PipelineTrace($"[TRACE06] Batch complete: {convertedJobs} converted, {failed} failed");
 
         Dispatcher.UIThread.Invoke<Task>(async () =>
         {
-            var msg = $"Videos converted: " + convertedJobs;
-            if (failed > 0)
+            try
             {
-                msg += Environment.NewLine + $"Videos failed: " + failed;
+                PipelineTrace("[TRACE07] StartNext completion handler running");
+                var msg = $"Videos converted: " + convertedJobs;
+                if (failed > 0)
+                {
+                    msg += Environment.NewLine + $"Videos failed: " + failed;
+                }
+
+                _timerWhisper.Stop();
+                Task.Delay(250).Wait();
+                HideProgressBar();
+                ProgressText = string.Empty;
+                EstimatedText = string.Empty;
+                ElapsedText = string.Empty;
+                PipelineTrace("[TRACE08] Progress bar hidden and text cleared");
+
+                if (_audioClips != null && failed == 0)
+                {
+                    OkPressed = true;
+                    Window?.Close();
+                    return;
+                }
+
+                await MessageBox.Show(
+                    Window!,
+                    Se.Language.Video.AudioToText.Title,
+                    msg,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
+                IsTranscribeEnabled = true;
+                PipelineTrace("[TRACE09] Batch completion done, IsTranscribeEnabled=true");
+
+                if (failed == 0)
+                {
+                    OkPressed = true; 
+                    Window?.Close();
+                }
             }
-
-            _timerWhisper.Stop();
-            Task.Delay(250).Wait();
-            HideProgressBar();
-            ProgressText = string.Empty;
-            EstimatedText = string.Empty;
-            ElapsedText = string.Empty;
-
-            if (_audioClips != null && failed == 0)
+            catch (Exception ex)
             {
-                OkPressed = true;
-                Window?.Close();
-                return;
-            }
-
-            await MessageBox.Show(
-                Window!,
-                Se.Language.Video.AudioToText.Title,
-                msg,
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-
-            IsTranscribeEnabled = true;
-
-            if (failed == 0)
-            {
-                OkPressed = true; 
-                Window?.Close();
+                LogToConsole($"Error during batch completion: {ex.Message}" + Environment.NewLine);
+                IsTranscribeEnabled = true;
+                ProgressText = string.Empty;
+                ElapsedText = string.Empty;
             }
         });
     }
@@ -1093,7 +1438,7 @@ public partial class SpeechToTextViewModel : ObservableObject
         return subtitleFileName;
     }
 
-    private Subtitle PostProcess(Subtitle transcript)
+    private async Task<Subtitle> PostProcessAsync(Subtitle transcript)
     {
         if (SelectedLanguage is not WhisperLanguage language)
         {
@@ -1113,7 +1458,7 @@ public partial class SpeechToTextViewModel : ObservableObject
         WavePeakData2? wavePeaks = null;
         if (DoAdjustTimings)
         {
-            wavePeaks = MakeWavePeaks();
+            wavePeaks = await MakeWavePeaksAsync();
         }
 
         if (DoAdjustTimings && wavePeaks != null)
@@ -1139,7 +1484,7 @@ public partial class SpeechToTextViewModel : ObservableObject
         return transcript;
     }
 
-    private WavePeakData2? MakeWavePeaks()
+    private async Task<WavePeakData2?> MakeWavePeaksAsync()
     {
         if (string.IsNullOrEmpty(_videoFileName) || !File.Exists(_videoFileName))
         {
@@ -1160,10 +1505,7 @@ public partial class SpeechToTextViewModel : ObservableObject
             process.Start();
 #pragma warning restore CA1416
 
-            while (!process.HasExited)
-            {
-                Task.Delay(100);
-            }
+            await process.WaitForExitAsync();
 
             // check for delay in matroska files
             var delayInMilliseconds = 0;
@@ -1395,6 +1737,19 @@ public partial class SpeechToTextViewModel : ObservableObject
         }
     }
 
+    private void CleanupUiAfterTranscription(string? errorMessage = null)
+    {
+        if (errorMessage != null)
+        {
+            LogToConsole(errorMessage + Environment.NewLine);
+        }
+        IsTranscribeEnabled = true;
+        HideProgressBar();
+        ProgressText = string.Empty;
+        ElapsedText = string.Empty;
+        EstimatedText = string.Empty;
+    }
+
     private void SetProgressBarPct(double pct)
     {
         if (pct > 100)
@@ -1416,6 +1771,8 @@ public partial class SpeechToTextViewModel : ObservableObject
 
     private async Task MakeResult(Subtitle? transcribedSubtitle)
     {
+        PipelineTrace($"[TRACE13] Entered MakeResult()");
+
         // Small delay to ensure all output is captured and flushed
         await Task.Delay(100);
 
@@ -1461,19 +1818,23 @@ public partial class SpeechToTextViewModel : ObservableObject
             }
         }
 
-        if (IsBatchMode)
+            if (IsBatchMode)
         {
             if (_abortBatch)
             {
+                PipelineTrace("[TRACE10] MakeResult: _abortBatch=true, returning early");
                 IsTranscribeEnabled = true;
                 HideProgressBar();
                 return;
             }
+            PipelineTrace("[TRACE11] MakeResult: calling StartNext()");
             StartNext(transcribedSubtitle);
+            PipelineTrace("[TRACE12] MakeResult: StartNext() returned");
             return;
         }
         else if (_abort)
         {
+            PipelineTrace("[TRACE14] MakeResult: single _abort path");
             if (anyLinesTranscribed)
             {
                 var videoPath = BatchItems.Count > 0 ? BatchItems[0].InputVideoFileName : _videoFileName;
@@ -1486,13 +1847,13 @@ public partial class SpeechToTextViewModel : ObservableObject
                     LogToConsole($"Partial transcription saved to: {srtPath}");
                 }
             }
+            CleanupUiAfterTranscription();
             Window?.Close();
         }
         else
         {
-            var settings = Se.Settings.Tools.AudioToText;
-            IsTranscribeEnabled = true;
-            HideProgressBar();
+            PipelineTrace("[TRACE15] MakeResult: single success path");
+            CleanupUiAfterTranscription();
 
             if (_loadedFromStdOut)
             {
@@ -1541,7 +1902,19 @@ public partial class SpeechToTextViewModel : ObservableObject
                 _timerWaveExtract.Stop();
 
 #pragma warning disable CA1416
-                _waveExtractProcess.Kill(true);
+                try
+                {
+                    if (_waveExtractProcess != null && !_waveExtractProcess.HasExited)
+                    {
+                        _waveExtractProcess.Kill(true);
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                }
 #pragma warning restore CA1416
 
                 ProgressOpacity = 0;
@@ -2545,6 +2918,8 @@ public partial class SpeechToTextViewModel : ObservableObject
         IsTranscribeEnabled = false;
         _abortBatch = false;
         ConsoleLog = string.Empty;
+        ConsoleLogLines.Clear();
+        TranscriptLines.Clear();
 
         if (!IsBatchMode)
         {
@@ -2681,6 +3056,18 @@ public partial class SpeechToTextViewModel : ObservableObject
         settings.WhisperChoice = engine.Choice;
         SaveSettings();
 
+        var pipelineType = PipelineSelector.SelectPipeline(
+            settings.TranscriptionMode,
+            TimeSpan.FromMinutes(30),
+            engine,
+            settings.EnableTranslation,
+            0);
+
+        if (pipelineType == PipelineType.Chunked)
+        {
+            return TranscribeViaChunkedPipelineAsync(videoFileName, engine, model, language);
+        }
+
         _showProgressPct = -1;
         IsTranscribeEnabled = false;
         ProgressOpacity = 1;
@@ -2756,6 +3143,228 @@ public partial class SpeechToTextViewModel : ObservableObject
         _timerWhisper.Start();
 
         return true;
+    }
+
+    private bool TranscribeViaChunkedPipelineAsync(
+        string videoFileName,
+        ISpeechToTextEngine engine,
+        SpeechToTextModelDisplay model,
+        WhisperLanguage language)
+    {
+        System.Diagnostics.Debug.WriteLine("[VM-ENTRY] TranscribeViaChunkedPipelineAsync ENTERED");
+        System.Diagnostics.Debug.WriteLine($"[VM-ENTRY] Video: {videoFileName}");
+        System.Diagnostics.Debug.WriteLine($"[VM-ENTRY] Engine: {engine.Name}");
+        System.Diagnostics.Debug.WriteLine($"[VM-ENTRY] Model: {model?.Model?.Name}");
+        System.Diagnostics.Debug.WriteLine($"[VM-ENTRY] Language: {language?.Code}");
+
+        var settings = Se.Settings.Tools.AudioToText;
+        var outputPath = Path.Combine(Path.GetTempPath(), $"chunked_{Guid.NewGuid():N}.srt");
+
+        try
+        {
+            System.Diagnostics.Debug.WriteLine("[VM-ENTRY] Try block entered, setting up...");
+            _showProgressPct = -1;
+            IsTranscribeEnabled = false;
+            ProgressOpacity = 1;
+            ProgressText = "Initializing chunked pipeline...";
+            _resultList.Clear();
+            _abort = false;
+            _recentTranscripts.Clear();
+            LiveTranscriptText = string.Empty;
+            IsLiveTranscriptVisible = true;
+            CurrentProcessingStatus = "Initializing...";
+
+            _sw = Stopwatch.StartNew();
+
+            var router = new ProcessOutputRouter();
+            router.OutputReceived += (_, e) =>
+            {
+                Dispatcher.UIThread.Invoke(() =>
+                {
+                    switch (e.Kind)
+                    {
+                        case ProcessOutputKind.Progress:
+                            if (e.ProgressPercent.HasValue)
+                            {
+                                _showProgressPct = e.ProgressPercent.Value;
+                            }
+                            break;
+
+                        case ProcessOutputKind.Transcript:
+                            if (!string.IsNullOrEmpty(e.Text))
+                            {
+                                LogToConsole(e.Text + Environment.NewLine);
+                            }
+                            break;
+
+                        case ProcessOutputKind.Error:
+                            LogToConsole($"ERROR: {e.Message}{Environment.NewLine}");
+                            break;
+                    }
+                });
+            };
+
+            System.Diagnostics.Debug.WriteLine("[VM-ENTRY] Starting Task.Run for chunked pipeline...");
+            LogToConsole("Starting chunked pipeline (check Debug Output for details)..." + Environment.NewLine);
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    PipelineTrace("[VM] Chunked pipeline task started");
+                    var audioExtractor = new FfmpegAudioExtractor(videoFileName, _audioTrackNumber, router);
+                    var videoDuration = await audioExtractor.GetVideoDurationAsync();
+                    PipelineTrace($"[VM] Video duration: {videoDuration}");
+
+                    var audioTranscriber = PipelineFactory.CreateTranscriber(
+                        engine,
+                        model.Model.Name,
+                        language.Code,
+                        router);
+
+                    PipelineTrace($"[VM] Transcriber created: {audioTranscriber.GetType().Name}");
+
+                    PipelineController controller;
+
+                    if (DoAutoTranslate && !string.IsNullOrEmpty(SelectedTargetLanguage))
+                    {
+                        var outputDir = Path.GetDirectoryName(videoFileName) ?? string.Empty;
+                        var baseName = Path.GetFileNameWithoutExtension(videoFileName);
+
+                        var modelName = GetTranslationModelName(language.Code, SelectedTargetLanguage);
+                        var translationProvider = new MarianMTTranslationProvider(modelName);
+                        var outputManager = new SubtitleOutputManager(outputDir, baseName, language.Code);
+                        var targetLanguages = new List<string> { SelectedTargetLanguage };
+
+                        controller = new PipelineController(
+                            videoFileName,
+                            outputPath,
+                            audioExtractor,
+                            audioTranscriber,
+                            videoDuration,
+                            _audioTrackNumber,
+                            outputManager,
+                            translationProvider,
+                            targetLanguages,
+                            DoGenerateBilingual,
+                            msg => { System.Diagnostics.Debug.WriteLine(msg); LogToConsole(msg + Environment.NewLine); });
+
+                        LogToConsole($"Translation enabled: {language.Code} -> {SelectedTargetLanguage} (model: {modelName})" + Environment.NewLine);
+                        if (DoGenerateBilingual)
+                        {
+                            LogToConsole("Bilingual output enabled (original + translation in one file)" + Environment.NewLine);
+                        }
+                    }
+                    else
+                    {
+                        controller = new PipelineController(
+                            videoFileName,
+                            outputPath,
+                            audioExtractor,
+                            audioTranscriber,
+                            videoDuration,
+                            _audioTrackNumber,
+                            msg => { System.Diagnostics.Debug.WriteLine(msg); LogToConsole(msg + Environment.NewLine); });
+                    }
+
+                    controller.ProgressReporter.AttachOutputRouter(router);
+                    controller.ProgressChanged += OnChunkProgressChanged;
+
+                    PipelineTrace("[VM] Calling controller.TranscribeAsync()...");
+                    var result = await controller.TranscribeAsync();
+                    PipelineTrace($"[VM] TranscribeAsync returned: {result?.Paragraphs.Count ?? 0} paragraphs");
+
+                    await Dispatcher.UIThread.InvokeAsync(async () =>
+                    {
+                        _timerWhisper.Stop();
+                        IsLiveTranscriptVisible = false;
+
+                        if (_abort)
+                        {
+                            return;
+                        }
+
+if (result != null && result.Paragraphs.Count > 0)
+                        {
+                            var subtitle = new Subtitle();
+                            foreach (var p in result.Paragraphs)
+                            {
+                                subtitle.Paragraphs.Add(p);
+                            }
+
+                            var postProcessedSubtitle = await PostProcessAsync(subtitle);
+                            ProgressText = string.Empty;
+
+                            if (IsBatchMode && BatchItems.Count > 0)
+                            {
+                                var currentItem = BatchItems[0];
+                                LastBatchSubtitleFileName = string.IsNullOrEmpty(currentItem.OutputSubtitleFileName)
+                                    ? GetSubtitleFileName(currentItem.InputVideoFileName)
+                                    : currentItem.OutputSubtitleFileName;
+                            }
+
+                            await MakeResult(postProcessedSubtitle);
+
+                            if (DoAutoTranslate && !string.IsNullOrEmpty(SelectedTargetLanguage))
+                            {
+                                var outputDir = Path.GetDirectoryName(_videoFileName) ?? string.Empty;
+                                var baseName = Path.GetFileNameWithoutExtension(_videoFileName);
+                                var translatedSrtPath = Path.Combine(outputDir, $"{baseName}.{SelectedTargetLanguage.ToLower()}.srt");
+                                if (File.Exists(translatedSrtPath))
+                                {
+                                    LogToConsole($"Translation SRT saved: {translatedSrtPath}" + Environment.NewLine);
+                                }
+                                if (DoGenerateBilingual)
+                                {
+                                    var bilingualSrtPath = Path.Combine(outputDir, $"{baseName}.{language.Code}-{SelectedTargetLanguage.ToLower()}.srt");
+                                    if (File.Exists(bilingualSrtPath))
+                                    {
+                                        LogToConsole($"Bilingual SRT saved: {bilingualSrtPath}" + Environment.NewLine);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            LogToConsole("No transcription results." + Environment.NewLine);
+                            CleanupUiAfterTranscription();
+                        }
+                    });
+                }
+                catch (OperationCanceledException)
+                {
+                    Dispatcher.UIThread.Invoke(() =>
+                    {
+                        _timerWhisper.Stop();
+                        IsLiveTranscriptVisible = false;
+                        LogToConsole("Transcription cancelled." + Environment.NewLine);
+                        IsTranscribeEnabled = true;
+                    });
+                }
+                catch (Exception ex)
+                {
+                    PipelineTrace($"[VM] EXCEPTION in chunked pipeline: {ex.GetType().Name}: {ex.Message}");
+                    PipelineTrace($"[VM] Stack trace: {ex.StackTrace}");
+
+                    Dispatcher.UIThread.Invoke(() =>
+                    {
+                        _timerWhisper.Stop();
+                        IsLiveTranscriptVisible = false;
+                        LogToConsole($"Error: {ex.Message}" + Environment.NewLine);
+                        IsTranscribeEnabled = true;
+                    });
+                }
+            });
+
+            System.Diagnostics.Debug.WriteLine("[VM-ENTRY] Task.Run started, returning true. Timer started.");
+            _timerWhisper.Start();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            return false;
+        }
     }
 
     private Process GetWhisperProcess(
@@ -2953,6 +3562,39 @@ public partial class SpeechToTextViewModel : ObservableObject
             }
 
             return p;
+        }
+
+        if (engine is VoskEngine)
+        {
+            var modelPath = engine.GetModelForCmdLine(model);
+            var srtPath = waveFileName.Remove(waveFileName.Length - 4) + ".srt";
+            var langCode = SelectedLanguage?.Code ?? "en";
+
+            var processStartInfo = VoskEngine.GetPythonTranscribeProcessStartInfo(modelPath, waveFileName, srtPath, langCode);
+            processStartInfo.StandardOutputEncoding = Encoding.UTF8;
+            processStartInfo.StandardErrorEncoding = Encoding.UTF8;
+
+            var voskProcess = new Process
+            {
+                StartInfo = processStartInfo
+            };
+
+            if (dataReceivedHandler != null)
+            {
+                voskProcess.StartInfo.RedirectStandardOutput = true;
+                voskProcess.StartInfo.RedirectStandardError = true;
+                voskProcess.OutputDataReceived += dataReceivedHandler;
+                voskProcess.ErrorDataReceived += dataReceivedHandler;
+            }
+
+            voskProcess.Start();
+            if (dataReceivedHandler != null)
+            {
+                voskProcess.BeginOutputReadLine();
+                voskProcess.BeginErrorReadLine();
+            }
+
+            return voskProcess;
         }
 
         var settings = Se.Settings.Tools.AudioToText;
@@ -3262,6 +3904,14 @@ public partial class SpeechToTextViewModel : ObservableObject
                     _showProgressPct = pct;
                 }
             }
+            else if (line.StartsWith("TEXT:", StringComparison.OrdinalIgnoreCase))
+            {
+                var text = line.Substring(5).Trim();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    LogToConsole(text + Environment.NewLine);
+                }
+            }
         }
     }
 
@@ -3272,10 +3922,35 @@ public partial class SpeechToTextViewModel : ObservableObject
             _outputText.Enqueue(s);
         }
 
-        ConsoleLog += s.Trim() + "\n";
+        var trimmed = s.Trim();
+        if (string.IsNullOrEmpty(trimmed))
+            return;
 
-        Dispatcher.UIThread.Post(() => { TextBoxConsoleLog.CaretIndex = TextBoxConsoleLog.Text?.Length ?? 0; },
-           DispatcherPriority.Background);
+        Dispatcher.UIThread.Post(() =>
+        {
+            ConsoleLogLines.Add(trimmed);
+            while (ConsoleLogLines.Count > MaxConsoleLines)
+            {
+                ConsoleLogLines.RemoveAt(0);
+            }
+
+            if (TextBoxConsoleLog != null)
+            {
+                TextBoxConsoleLog.CaretIndex = TextBoxConsoleLog.Text?.Length ?? 0;
+            }
+        }, DispatcherPriority.Background);
+    }
+
+    private void PipelineTrace(string message)
+    {
+        System.Diagnostics.Debug.WriteLine($"[PIPELINE] {message}");
+        LogToConsole(message + Environment.NewLine);
+    }
+
+    private void ChunkTrace(string message)
+    {
+        System.Diagnostics.Debug.WriteLine(message);
+        LogToConsole(message + Environment.NewLine);
     }
 
     private static decimal GetSeconds(string timeCode)
@@ -3431,7 +4106,20 @@ public partial class SpeechToTextViewModel : ObservableObject
 
         var isPurfview = engine.Name == WhisperEnginePurfviewFasterWhisperXxl.StaticName;
 
+        var caps = engine.GetCapabilities();
         IsTranslateVisible = IsTranslateAvailable(engine);
+        EngineDescription = caps.Description;
+        EngineCapabilitiesSummary = BuildCapabilitiesSummary(engine, caps);
+        IsTranslateDuringTranscriptionVisible = caps.SupportsTranslateDuringTranscription;
+        IsAutoTranslateVisible = caps.SupportsAutoTranslate;
+        IsBilingualOutputVisible = caps.SupportsBilingualOutput;
+        IsResumeVisible = caps.SupportsResumeFromCheckpoint;
+        IsChunkedModeVisible = caps.SupportsChunkedTranscription;
+        IsLegacyModeVisible = caps.SupportsLegacyTranscription;
+        IsSceneAwareSplittingVisible = caps.SupportsSceneAwareSplitting;
+        IsCustomCommandLineVisible = caps.SupportsCustomCommandLine;
+        IsOriginalSubtitleOutputVisible = caps.SupportsAutoTranslate || caps.SupportsBilingualOutput;
+        IsTranslatedSubtitleOutputVisible = caps.SupportsAutoTranslate || caps.SupportsBilingualOutput;
 
         Parameters = engine.CommandLineParameter;
 
@@ -3694,6 +4382,8 @@ public partial class SpeechToTextViewModel : ObservableObject
     {
         UiUtil.SaveWindowPosition(Window);
         Task.Run(() => { DeleteTempFiles(); });
+        _progressThrottleTimer?.Stop();
+        _progressThrottleTimer?.Dispose();
     }
 
     internal void WindowContextMenuOpening(object? sender, EventArgs e)
@@ -3746,5 +4436,31 @@ public partial class SpeechToTextViewModel : ObservableObject
                 await AddFiles(files.Select(p => p.Path.LocalPath).ToArray());
             });
         }
+    }
+
+    private static string GetTranslationModelName(string sourceLanguage, string targetLanguage)
+    {
+        var src = sourceLanguage.ToLowerInvariant();
+        var tgt = targetLanguage.ToLowerInvariant();
+
+        var modelPairs = new Dictionary<string, string>
+        {
+            { "en-hi", "Helsinki-NLP/opus-mt-en-hi" },
+            { "hi-en", "Helsinki-NLP/opus-mt-hi-en" },
+            { "en-es", "Helsinki-NLP/opus-mt-en-es" },
+            { "es-en", "Helsinki-NLP/opus-mt-es-en" },
+            { "en-fr", "Helsinki-NLP/opus-mt-en-fr" },
+            { "fr-en", "Helsinki-NLP/opus-mt-fr-en" },
+            { "en-de", "Helsinki-NLP/opus-mt-en-de" },
+            { "de-en", "Helsinki-NLP/opus-mt-de-en" },
+        };
+
+        var key = $"{src}-{tgt}";
+        if (modelPairs.TryGetValue(key, out var modelName))
+        {
+            return modelName;
+        }
+
+        return "Helsinki-NLP/opus-mt-m2m";
     }
 }

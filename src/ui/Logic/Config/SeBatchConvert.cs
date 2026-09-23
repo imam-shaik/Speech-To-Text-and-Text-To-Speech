@@ -68,6 +68,7 @@ public class SeBatchConvert
     public string AutoTranslateEngine { get; set; }
     public string AutoTranslateSourceLanguage { get; set; }
     public string AutoTranslateTargetLanguage { get; set; }
+    public bool AutoTranslateSaveOriginalAlso { get; set; }
 
     public string ChangeCasingType { get; set; }
     public bool NormalCasingFixNames { get; set; }

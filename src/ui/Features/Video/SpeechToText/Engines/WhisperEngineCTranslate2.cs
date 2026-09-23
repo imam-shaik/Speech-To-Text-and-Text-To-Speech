@@ -134,4 +134,22 @@ public class WhisperEngineCTranslate2 : ISpeechToTextEngine
         get => Se.Settings.Tools.AudioToText.CommandLineParameterCTranslate2;
         set => Se.Settings.Tools.AudioToText.CommandLineParameterCTranslate2 = value;
     }
+
+    public SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = true,
+        SupportsAutoTranslate = true,
+        SupportsBilingualOutput = true,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = false,
+        SupportsForcedAlignerSelection = false,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = true,
+        IsFastStartup = false,
+        Description = "CTranslate2 - Fast inference, VAD filter built-in"
+    };
 }

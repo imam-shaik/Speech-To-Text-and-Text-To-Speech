@@ -96,4 +96,22 @@ public class CrispAsrEngine : CrispAsrEngineBase
     {
         return Name;
     }
+
+    public override SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = false,
+        SupportsAutoTranslate = true,
+        SupportsBilingualOutput = true,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = true,
+        SupportsForcedAlignerSelection = true,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = true,
+        IsFastStartup = false,
+        Description = "Crisp ASR - Multiple backends, forced aligner support"
+    };
 }

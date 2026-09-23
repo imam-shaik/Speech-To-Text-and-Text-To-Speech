@@ -456,6 +456,7 @@ public class LanguageGeneral
     public string SaveImageAs { get; set; }
     public string SaveImageAsDotDotDot { get; set; }
     public string SaveOriginalAsTitle { get; set; }
+    public string SaveOriginalAlso { get; set; }
     public string SaveTranslationAsTitle { get; set; }
     public string SaveVideoAsVideoTitle { get; set; }
     public string SavedChangesToX { get; set; }
@@ -865,6 +866,7 @@ public class LanguageGeneral
         FixRightToLeft = "Fix right-to-left";
         FixRightToLeftViaUnicodeTags = "Fix RTL via Unicode tags";
         FixedValue = "Fixed value";
+        Folder = "Folder";
         FocusSelectedLine = "Focus selected line (scroll into view in grid)";
         Font = "Font";
         FontColor = "Font color";
@@ -1131,6 +1133,7 @@ public class LanguageGeneral
         SaveImageAs = "Save image as";
         SaveImageAsDotDotDot = "Save image as...";
         SaveOriginalAsTitle = "Save original as";
+        SaveOriginalAlso = "Save original subtitle (before translation)";
         SaveTranslationAsTitle = "Save translation as";
         SaveVideoAsVideoTitle = "Save video as";
         SavedChangesToX = "Saved \"{0}\"";

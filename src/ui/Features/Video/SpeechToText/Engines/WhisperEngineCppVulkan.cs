@@ -174,4 +174,22 @@ public class WhisperEngineCppVulkan : ISpeechToTextEngine
         get => Se.Settings.Tools.AudioToText.CommandLineParameterCppVulkan;
         set => Se.Settings.Tools.AudioToText.CommandLineParameterCppVulkan = value;
     }
+
+    public SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = true,
+        SupportsAutoTranslate = true,
+        SupportsBilingualOutput = true,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = false,
+        SupportsForcedAlignerSelection = false,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = true,
+        IsFastStartup = false,
+        Description = "Whisper.cpp Vulkan - GPU acceleration via Vulkan"
+    };
 }

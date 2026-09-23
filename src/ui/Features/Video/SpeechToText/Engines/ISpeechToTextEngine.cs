@@ -2,6 +2,7 @@
 using System.IO;
 using System.Threading.Tasks;
 using Nikse.SubtitleEdit.Core.AudioToText;
+using Nikse.SubtitleEdit.Features.Video.SpeechToText.Pipeline;
 
 namespace Nikse.SubtitleEdit.Features.Video.SpeechToText.Engines;
 
@@ -25,4 +26,8 @@ public interface ISpeechToTextEngine
     Task<string> GetHelpText();
     string GetWhisperModelDownloadFileName(WhisperModel whisperModel, string url);
     string CommandLineParameter { get; set; }
+
+    SubtitleSegmentationOptions GetSegmentationOptions() => SubtitleSegmentationOptions.Default;
+
+    SpeechToTextEngineCapabilities GetCapabilities() => new();
 }

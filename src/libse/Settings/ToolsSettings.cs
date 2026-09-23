@@ -318,6 +318,7 @@ namespace Nikse.SubtitleEdit.Core.Settings
         public bool WhisperPostProcessingSplitLines { get; set; }
         public bool WhisperPostProcessingFixCasing { get; set; }
         public bool WhisperPostProcessingFixShortDuration { get; set; }
+        public bool PreserveTranscriptionDiagnostics { get; set; }
         public int AudioToTextLineMaxChars { get; set; }
         public int AudioToTextLineMaxCharsJp { get; set; }
         public int AudioToTextLineMaxCharsCn { get; set; }
@@ -510,6 +511,7 @@ namespace Nikse.SubtitleEdit.Core.Settings
             WhisperPostProcessingSplitLines = true;
             WhisperPostProcessingFixCasing = false;
             WhisperPostProcessingFixShortDuration = true;
+            PreserveTranscriptionDiagnostics = false;
             AudioToTextLineMaxChars = 86;
             AudioToTextLineMaxCharsJp = 32;
             AudioToTextLineMaxCharsCn = 36;

@@ -124,11 +124,77 @@ public class SpeechToTextWindow : Window
             }
         };
 
-        var labelTranslateToEnglish = UiUtil.MakeTextBlock(Se.Language.Video.AudioToText.TranslateToEnglish)
-            .BindIsVisible(vm, nameof(vm.IsTranslateVisible));
+        var engineCapabilityCard = new Border
+        {
+            BorderBrush = Avalonia.Media.Brushes.LightGray,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(10, 8),
+            Margin = new Thickness(0, 0, 0, 15),
+            IsVisible = true,
+        };
+        var capabilityTextBlock = new TextBlock
+        {
+            FontSize = 11,
+            Opacity = 0.8,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        capabilityTextBlock.Bind(TextBlock.TextProperty, new Binding(nameof(vm.EngineCapabilitiesSummary)) { Source = vm, Mode = BindingMode.OneWay });
+        engineCapabilityCard.Child = capabilityTextBlock;
+
+        var labelTranscriptionMode = UiUtil.MakeTextBlock(Se.Language.Video.AudioToText.TranscriptionMode).WithMarginTop(15);
+        var radioAutomatic = UiUtil.MakeRadioButton(
+            Se.Language.Video.AudioToText.TranscriptionModeAutomatic,
+            vm,
+            nameof(vm.IsTranscriptionModeAutomatic),
+            "transcriptionMode");
+        var textAutomaticDescription = UiUtil.MakeTextBlock(Se.Language.Video.AudioToText.TranscriptionModeAutomaticDescription)
+            .WithMarginLeft(20)
+            .WithFontSize(10);
+        textAutomaticDescription.Opacity = 0.7;
+
+        var radioChunked = UiUtil.MakeRadioButton(
+            Se.Language.Video.AudioToText.TranscriptionModeChunked,
+            vm,
+            nameof(vm.IsTranscriptionModeChunked),
+            "transcriptionMode");
+        var textChunkedDescription = UiUtil.MakeTextBlock(Se.Language.Video.AudioToText.TranscriptionModeChunkedDescription)
+            .WithMarginLeft(20)
+            .WithFontSize(10);
+        textChunkedDescription.Opacity = 0.7;
+
+        var radioLegacy = UiUtil.MakeRadioButton(
+            Se.Language.Video.AudioToText.TranscriptionModeLegacy,
+            vm,
+            nameof(vm.IsTranscriptionModeLegacy),
+            "transcriptionMode");
+        var textLegacyDescription = UiUtil.MakeTextBlock(Se.Language.Video.AudioToText.TranscriptionModeLegacyDescription)
+            .WithMarginLeft(20)
+            .WithFontSize(10);
+        textLegacyDescription.Opacity = 0.7;
+
+        var panelTranscriptionMode = new StackPanel
+        {
+            Orientation = Orientation.Vertical,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 5, 0, 0),
+            Children =
+            {
+                radioAutomatic,
+                textAutomaticDescription,
+                radioChunked,
+                textChunkedDescription,
+                radioLegacy,
+                textLegacyDescription
+            }
+        };
+
+        var labelTranslateToEnglish = UiUtil.MakeTextBlock("Translate during recognition")
+            .BindIsVisible(vm, nameof(vm.IsTranslateDuringTranscriptionVisible));
         var checkTranslateToEnglish = UiUtil.MakeCheckBox(vm, nameof(vm.DoTranslateToEnglish))
             .BindIsEnabled(vm, nameof(vm.IsTranscribeEnabled))
-            .BindIsVisible(vm, nameof(vm.IsTranslateVisible));
+            .BindIsVisible(vm, nameof(vm.IsTranslateDuringTranscriptionVisible));
 
         var labelPostProcessing = UiUtil.MakeTextBlock(Se.Language.General.PostProcessing).WithMarginTop(15);
         var checkPostProcessing = UiUtil.MakeCheckBox(vm, nameof(vm.DoPostProcessing)).BindIsEnabled(vm, nameof(vm.IsTranscribeEnabled));
@@ -332,6 +398,7 @@ public class SpeechToTextWindow : Window
         panelSettings.Children.Add(comboLanguage);
         panelSettings.Children.Add(labelModel);
         panelSettings.Children.Add(panelModelControls);
+        panelSettings.Children.Add(engineCapabilityCard);
         panelSettings.Children.Add(labelTranslateToEnglish);
         panelSettings.Children.Add(checkTranslateToEnglish);
 
@@ -371,7 +438,8 @@ public class SpeechToTextWindow : Window
         comboAudioTrack.Bind(Visual.IsVisibleProperty, new Binding(nameof(vm.IsSingleModeVisible)) { Source = vm, Converter = new InverseBooleanConverter() });
 
         // Translation Options
-        var checkAutoTranslate = UiUtil.MakeCheckBox("Auto translate result", vm, nameof(vm.DoAutoTranslate));
+        var checkAutoTranslate = UiUtil.MakeCheckBox("Generate translated subtitle", vm, nameof(vm.DoAutoTranslate))
+            .BindIsVisible(vm, nameof(vm.IsAutoTranslateVisible));
         var comboTargetLanguage = new ComboBox
         {
             HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -382,7 +450,8 @@ public class SpeechToTextWindow : Window
         comboTargetLanguage.Bind(Visual.IsVisibleProperty, new Binding(nameof(vm.DoAutoTranslate)) { Source = vm });
 
         // Scene-Aware Splitting
-        var checkSceneAware = UiUtil.MakeCheckBox("Scene-aware splitting", vm, nameof(vm.DoSceneAwareSplitting));
+        var checkSceneAware = UiUtil.MakeCheckBox("Scene-aware splitting", vm, nameof(vm.DoSceneAwareSplitting))
+            .BindIsVisible(vm, nameof(vm.IsSceneAwareSplittingVisible));
         checkSceneAware.Margin = new Thickness(0, 0, 0, 10);
 
         panelSettings.Children.Add(new Separator { Margin = new Thickness(0, 10, 0, 10) });
@@ -390,14 +459,30 @@ public class SpeechToTextWindow : Window
         panelSettings.Children.Add(panelTimeControls);
         panelSettings.Children.Add(labelAudioTrack);
         panelSettings.Children.Add(comboAudioTrack);
+
+        // Transcription Mode Selection - THIS WAS MISSING!
+        panelSettings.Children.Add(labelTranscriptionMode);
+        panelSettings.Children.Add(panelTranscriptionMode);
+
+        // Translation Options
+        panelSettings.Children.Add(new Separator { Margin = new Thickness(0, 10, 0, 10) });
         panelSettings.Children.Add(checkAutoTranslate);
         panelSettings.Children.Add(comboTargetLanguage);
+
+        // Dual SRT Output Option (Original + Translation in one file)
+        var checkDualSrtOutput = UiUtil.MakeCheckBox("Generate bilingual subtitle", vm, nameof(vm.DoGenerateBilingual));
+        checkDualSrtOutput.Margin = new Thickness(20, 5, 0, 10);
+        checkDualSrtOutput.Bind(Visual.IsVisibleProperty, new Binding(nameof(vm.IsBilingualOutputVisible)) { Source = vm });
+        panelSettings.Children.Add(checkDualSrtOutput);
+
+        // Scene-Aware Splitting
         panelSettings.Children.Add(checkSceneAware);
 
         var buttonResume = UiUtil.MakeButton("Resume from broken SRT", vm.ResumeCommand)
             .WithMarginTop(10)
             .WithMarginBottom(10)
-            .BindIsEnabled(vm, nameof(vm.IsTranscribeEnabled));
+            .BindIsEnabled(vm, nameof(vm.IsTranscribeEnabled))
+            .BindIsVisible(vm, nameof(vm.IsResumeVisible));
         panelSettings.Children.Add(buttonResume);
         panelSettings.Children.Add(new Separator { Margin = new Thickness(0, 10, 0, 10) });
 
@@ -405,6 +490,10 @@ public class SpeechToTextWindow : Window
         panelSettings.Children.Add(labelAdvancedSettings);
         panelSettings.Children.Add(buttonAdvancedSettings);
         panelSettings.Children.Add(textBoxAdvancedSettings);
+
+        // Live Transcript Panel
+        var liveTranscriptPanel = MakeLiveTranscriptPanel(vm);
+        liveTranscriptPanel.Bind(Visual.IsVisibleProperty, new Binding(nameof(vm.IsLiveTranscriptVisible)) { Source = vm });
 
         // Right panel - Console log and Batch view
         var panelRight = new Grid
@@ -418,8 +507,13 @@ public class SpeechToTextWindow : Window
             VerticalAlignment = VerticalAlignment.Stretch,
         };
         panelRight.Add(labelConsoleLog, 0, 0);
+        panelRight.Add(liveTranscriptPanel, 1, 0);
         panelRight.Add(consoleLogAndBatchView, 1, 0);
         panelRight.Add(consoleLogOnlyView, 1, 0);
+
+        liveTranscriptPanel.ZIndex = 10;
+        consoleLogAndBatchView.ZIndex = 1;
+        consoleLogOnlyView.ZIndex = 1;
 
         // Main outer grid - 2 columns
         var grid = new Grid
@@ -478,26 +572,30 @@ public class SpeechToTextWindow : Window
 
     private static Grid MakeConsoleLogAndBatchView(SpeechToTextViewModel vm)
     {
-        var textBoxConsoleLog = new TextBox()
+        var listBoxConsoleLog = new ListBox()
         {
             Width = double.NaN,
             Height = double.NaN,
             VerticalAlignment = VerticalAlignment.Stretch,
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            IsReadOnly = true,
             Margin = new Thickness(0, 0, 0, 10),
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
         };
-        textBoxConsoleLog.Bind(TextBox.TextProperty, new Binding
+        listBoxConsoleLog.Bind(ListBox.ItemsSourceProperty, new Binding
         {
-            Path = nameof(vm.ConsoleLog),
+            Path = nameof(vm.ConsoleLogLines),
             Mode = BindingMode.OneWay,
             Source = vm,
-            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
         });
-        vm.TextBoxConsoleLog = textBoxConsoleLog;
+        vm.TextBoxConsoleLog = null;
 
+        var scrollViewer = new ScrollViewer
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Content = listBoxConsoleLog,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+        };
 
         var dataGrid = new DataGrid
         {
@@ -657,7 +755,7 @@ public class SpeechToTextWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
-        grid.Add(textBoxConsoleLog, 0, 0);
+        grid.Add(scrollViewer, 0, 0);
         grid.Add(borderBatch, 1, 0);
 
         grid.WithBindVisible(vm, nameof(vm.IsBatchMode));
@@ -665,29 +763,95 @@ public class SpeechToTextWindow : Window
         return grid;
     }
 
-    private static TextBox MakeConsoleLogOnlyView(SpeechToTextViewModel vm)
+    private static ScrollViewer MakeConsoleLogOnlyView(SpeechToTextViewModel vm)
     {
-        var textBoxConsoleLog = new TextBox()
+        var listBoxConsoleLog = new ListBox()
+        {
+            Width = double.NaN,
+            Height = double.NaN,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            FontSize = 12,
+        };
+        listBoxConsoleLog.Bind(ListBox.ItemsSourceProperty, new Binding
+        {
+            Path = nameof(vm.ConsoleLogLines),
+            Mode = BindingMode.OneWay,
+            Source = vm,
+        });
+
+        var scrollViewer = new ScrollViewer
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Content = listBoxConsoleLog,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+        };
+        scrollViewer.Bind(Visual.IsVisibleProperty, new Binding
+        {
+            Path = nameof(vm.IsBatchMode),
+            Converter = new InverseBooleanConverter(),
+            Source = vm,
+            Mode = BindingMode.OneWay,
+        });
+        vm.TextBoxConsoleLog = null;
+
+        return scrollViewer;
+    }
+
+    private static Grid MakeLiveTranscriptPanel(SpeechToTextViewModel vm)
+    {
+        var statusText = new TextBlock
+        {
+            FontSize = 12,
+            FontWeight = FontWeight.SemiBold,
+            Margin = new Thickness(10, 10, 10, 5),
+        };
+        statusText.Bind(TextBlock.TextProperty, new Binding
+        {
+            Path = nameof(vm.CurrentProcessingStatus),
+            Mode = BindingMode.OneWay,
+            Source = vm,
+            UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
+        });
+
+        var transcriptTextBox = new TextBox()
         {
             Width = double.NaN,
             Height = double.NaN,
             VerticalAlignment = VerticalAlignment.Stretch,
             HorizontalAlignment = HorizontalAlignment.Stretch,
             IsReadOnly = true,
-            Margin = new Thickness(10),
+            Margin = new Thickness(10, 0, 10, 10),
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
+            FontSize = 14,
+            Background = Avalonia.Media.Brushes.Transparent,
         };
-        textBoxConsoleLog.Bind(TextBox.TextProperty, new Binding
+        transcriptTextBox.Bind(TextBox.TextProperty, new Binding
         {
-            Path = nameof(vm.ConsoleLog),
+            Path = nameof(vm.LiveTranscriptText),
             Mode = BindingMode.OneWay,
             Source = vm,
             UpdateSourceTrigger = UpdateSourceTrigger.PropertyChanged
         });
-        textBoxConsoleLog.WithBindIsVisible(nameof(vm.IsBatchMode), new InverseBooleanConverter());
-        vm.TextBoxConsoleLog = textBoxConsoleLog;
 
-        return textBoxConsoleLog;
+        var grid = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+            },
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(30, 30, 30)),
+            Margin = new Thickness(0, 0, 0, 10),
+        };
+
+        grid.Add(statusText, 0, 0);
+        grid.Add(transcriptTextBox, 1, 0);
+
+        return grid;
     }
 }

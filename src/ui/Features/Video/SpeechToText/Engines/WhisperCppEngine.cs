@@ -93,4 +93,22 @@ public class WhisperCppEngine : ISpeechToTextEngine
     {
         return Name;
     }
+
+    public SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = true,
+        SupportsAutoTranslate = true,
+        SupportsBilingualOutput = true,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = true,
+        SupportsForcedAlignerSelection = false,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = true,
+        IsFastStartup = false,
+        Description = "Whisper.cpp - Offline, supports translate during recognition"
+    };
 }

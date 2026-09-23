@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia.Platform;
 using Nikse.SubtitleEdit.Core.AudioToText;
 using Nikse.SubtitleEdit.Logic.Config;
+using Nikse.SubtitleEdit.Features.Video.SpeechToText.Pipeline;
 
 namespace Nikse.SubtitleEdit.Features.Video.SpeechToText.Engines;
 
@@ -220,4 +221,27 @@ public class Qwen3AsrCppEngine : ISpeechToTextEngine
         get => Se.Settings.Tools.AudioToText.CommandLineParameterQwen3AsrCpp;
         set => Se.Settings.Tools.AudioToText.CommandLineParameterQwen3AsrCpp = value;
     }
+
+    public SubtitleSegmentationOptions GetSegmentationOptions()
+    {
+        return SubtitleSegmentationOptions.ReadingOptimized;
+    }
+
+    public SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = false,
+        SupportsAutoTranslate = false,
+        SupportsBilingualOutput = false,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = false,
+        SupportsForcedAlignerSelection = false,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = true,
+        IsFastStartup = false,
+        Description = "Qwen3 ASR - High quality, reading optimized segmentation"
+    };
 }

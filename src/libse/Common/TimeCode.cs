@@ -148,11 +148,6 @@ namespace Nikse.SubtitleEdit.Core.Common
         {
             get
             {
-                if (TotalMilliseconds > MaxTimeTotalMilliseconds || TotalMilliseconds < -MaxTimeTotalMilliseconds)
-                {
-                    return new TimeSpan();
-                }
-
                 return TimeSpan.FromMilliseconds(TotalMilliseconds);
             }
             set => TotalMilliseconds = value.TotalMilliseconds;

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Nikse.SubtitleEdit.Core.Common;
@@ -19,13 +20,19 @@ public partial class SpeechToTextJobItem : ObservableObject
     {
         _outputSubtitleFileName = string.Empty;
         InputVideoFileName = inputVideoFileName;
-        if (inputVideoFileName.Length > 75)
+        var fileName = Path.GetFileName(inputVideoFileName);
+        var duration = mediaInfo?.Duration;
+        var durationDisplay = duration?.TotalMilliseconds > 0
+            ? $" ({duration:h\\:mm\\:ss})"
+            : string.Empty;
+
+        if (inputVideoFileName.Length + durationDisplay.Length > 75)
         {
-            InputVideoFileNameShort = Path.GetFileName(inputVideoFileName);
+            InputVideoFileNameShort = fileName + durationDisplay;
         }
         else
         {
-            InputVideoFileNameShort = inputVideoFileName;
+            InputVideoFileNameShort = inputVideoFileName + durationDisplay;
         }
 
         var fileInfo = new FileInfo(inputVideoFileName);
@@ -33,7 +40,7 @@ public partial class SpeechToTextJobItem : ObservableObject
 
         SizeDisplay = Utilities.FormatBytesToDisplayFileSize(fileInfo.Length);
         Status = status;
-        
+
         MediaInfo = mediaInfo;
     }
 }

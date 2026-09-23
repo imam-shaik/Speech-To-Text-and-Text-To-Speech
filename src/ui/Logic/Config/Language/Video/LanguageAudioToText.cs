@@ -31,6 +31,13 @@ public class LanguageAudioToText
     public string FixCasing { get; set; }
     public string AddPeriods { get; set; }
     public string ChangeUnderlineToColor { get; set; }
+    public string TranscriptionMode { get; set; }
+    public string TranscriptionModeAutomatic { get; set; }
+    public string TranscriptionModeChunked { get; set; }
+    public string TranscriptionModeLegacy { get; set; }
+    public string TranscriptionModeAutomaticDescription { get; set; }
+    public string TranscriptionModeChunkedDescription { get; set; }
+    public string TranscriptionModeLegacyDescription { get; set; }
 
     public LanguageAudioToText()
     {
@@ -63,5 +70,12 @@ public class LanguageAudioToText
         FixCasing = "Fix casing";
         AddPeriods = "Add periods";
         ChangeUnderlineToColor = "Change underline to color";
+        TranscriptionMode = "Transcription Mode";
+        TranscriptionModeAutomatic = "Automatic (Recommended)";
+        TranscriptionModeChunked = "Chunked";
+        TranscriptionModeLegacy = "Legacy";
+        TranscriptionModeAutomaticDescription = "Automatically selects the best transcription method";
+        TranscriptionModeChunkedDescription = "Low-memory processing with checkpoint/resume support";
+        TranscriptionModeLegacyDescription = "Original single-pass transcription";
     }
 }

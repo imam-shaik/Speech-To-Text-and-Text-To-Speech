@@ -154,6 +154,22 @@ public class BatchConvertWindow : Window
             {
                 new DataGridTextColumn
                 {
+                    Header = "#",
+                    CellTheme = UiUtil.DataGridNoBorderNoPaddingCellTheme,
+                    Binding = new Binding(nameof(BatchConvertItem.QueuePosition)),
+                    IsReadOnly = true,
+                    Width = new DataGridLength(40, DataGridLengthUnitType.Pixel),
+                },
+                new DataGridTextColumn
+                {
+                    Header = Se.Language.General.Folder,
+                    CellTheme = UiUtil.DataGridNoBorderNoPaddingCellTheme,
+                    Binding = new Binding(nameof(BatchConvertItem.FolderName)),
+                    IsReadOnly = true,
+                    Width = new DataGridLength(150, DataGridLengthUnitType.Pixel),
+                },
+                new DataGridTextColumn
+                {
                     Header = Se.Language.General.FileName,
                     CellTheme = UiUtil.DataGridNoBorderNoPaddingCellTheme,
                     Binding = new Binding(nameof(BatchConvertItem.FileName)),
@@ -186,6 +202,28 @@ public class BatchConvertWindow : Window
                 },
             },
         };
+        dataGrid.Sorting += (sender, args) =>
+        {
+            if (sender is DataGrid dg)
+            {
+                var column = args.Column;
+                var columnName = column.Header?.ToString() switch
+                {
+                    "#" => "QueuePosition",
+                    "Folder" => "FolderName",
+                    "File name" => "FileName",
+                    "Size" => "Size",
+                    "Format" => "Format",
+                    "Status" => "Status",
+                    _ => null
+                };
+                if (columnName != null)
+                {
+                    vm.OnDataGridSorting(columnName, args.Descending);
+                    args.Handled = true;
+                }
+            }
+        };
         dataGrid.Bind(DataGrid.SelectedItemProperty, new Binding(nameof(vm.SelectedBatchItem)) { Source = vm });
 
         var comboBoxSubtitleFormat = UiUtil.MakeComboBox(vm.TargetFormats, vm, nameof(vm.SelectedTargetFormat));
@@ -204,6 +242,10 @@ public class BatchConvertWindow : Window
             ToolTip.SetTip(buttonSettings, Se.Language.General.Settings);
         }
 
+        var buttonAdd = UiUtil.MakeButton(vm.AddFilesCommand, IconNames.Plus, Se.Language.General.Add).WithMarginLeft(10).WithBindIsEnabled(nameof(vm.IsConverting), new InverseBooleanConverter());
+        var buttonRemove = UiUtil.MakeButton(vm.RemoveSelectedFilesCommand, IconNames.Trash, Se.Language.General.Remove).WithMarginLeft(5).WithBindIsEnabled(nameof(vm.IsConverting), new InverseBooleanConverter());
+        var buttonClear = UiUtil.MakeButton(vm.ClearAllFilesCommand, IconNames.Close, Se.Language.General.Clear).WithMarginLeft(5).WithBindIsEnabled(nameof(vm.IsConverting), new InverseBooleanConverter());
+
         var panelFileControls = new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -212,9 +254,9 @@ public class BatchConvertWindow : Window
             Margin = new Thickness(0, 0, 0, 0),
             Children =
             {
-                UiUtil.MakeButton(vm.AddFilesCommand, IconNames.Plus, Se.Language.General.Add).WithMarginLeft(10),
-                UiUtil.MakeButton(vm.RemoveSelectedFilesCommand, IconNames.Trash, Se.Language.General.Remove).WithMarginLeft(5),
-                UiUtil.MakeButton(vm.ClearAllFilesCommand, IconNames.Close, Se.Language.General.Clear).WithMarginLeft(5),
+                buttonAdd,
+                buttonRemove,
+                buttonClear,
                 UiUtil.MakeLabel(Se.Language.General.TargetFormat).WithMarginLeft(15),
                 comboBoxSubtitleFormat,
                 buttonTargetFormatSettings,
@@ -297,6 +339,8 @@ public class BatchConvertWindow : Window
         grid.Add(dropHost, 0, 0);
         grid.Add(panelFileControls, 1, 0);
         grid.Add(panelFilter, 2, 0);
+
+        vm.BatchGrid = dataGrid;
 
         var border = UiUtil.MakeBorderForControlNoPadding(grid);
         return border;

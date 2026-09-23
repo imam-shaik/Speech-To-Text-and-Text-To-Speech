@@ -1,10 +1,20 @@
 ﻿using Avalonia.Media;
+using Nikse.SubtitleEdit.Features.Video.SpeechToText;
 
 namespace Nikse.SubtitleEdit.Logic.Config;
 
 public class SeAudioToText
 {
     public bool PostProcessing { get; set; } = true;
+
+    public int TranscriptionModeValue { get; set; } = 0;
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public TranscriptionMode TranscriptionMode
+    {
+        get => (TranscriptionMode)TranscriptionModeValue;
+        set => TranscriptionModeValue = (int)value;
+    }
 
     public string WhisperChoice { get; set; } = "WhisperCPP"; //TODO: WhisperEngineCpp.StaticName;
 
@@ -52,6 +62,7 @@ public class SeAudioToText
     public string CommandLineParameterCrispAsrQwen3 { get; set; } = "--max-len 50 --split-on-punct";
     public string CommandLineParameterCrispAsrOmni { get; set; } = "--max-len 50 --split-on-punct";
     public string CommandLineParameterCrispAsrKyutai { get; set; } = "--max-len 50 --split-on-punct";
+    public string CommandLineParameterVosk { get; set; } = string.Empty;
     public string CrispAsrForcedAligner { get; set; } = "built-in";
 
     public string WhisperExtraSettingsHistory { get; set; } = string.Empty;
@@ -72,4 +83,12 @@ public class SeAudioToText
     public bool WhisperPostProcessingChangeUnderlineToColor { get; set; }
     public string WhisperPostProcessingChangeUnderlineToColorColor { get; set; } = Colors.Red.FromColorToHex();
     public string WhisperCppVulkanGpuDevice { get; set; } = string.Empty;
+
+    public bool EnableTranslation { get; set; } = false;
+    public string TranslationProvider { get; set; } = "None";
+    public string TranslationTargetLanguage { get; set; } = "hi";
+    public bool KeepOriginalSubtitle { get; set; } = true;
+    public bool GenerateBilingualOutput { get; set; } = false;
+    public string MarianMTModelName { get; set; } = "Helsinki-NLP/opus-mt-en-hi";
+    public string MarianMTModelPath { get; set; } = string.Empty;
 }

@@ -165,4 +165,22 @@ public class WhisperEngineCpp : ISpeechToTextEngine
         get => Se.Settings.Tools.AudioToText.CommandLineParameterCpp;
         set => Se.Settings.Tools.AudioToText.CommandLineParameterCpp = value;
     }
+
+    public SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = true,
+        SupportsAutoTranslate = true,
+        SupportsBilingualOutput = true,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = false,
+        SupportsForcedAlignerSelection = false,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = true,
+        IsFastStartup = false,
+        Description = "Whisper.cpp - Core engine, CPU inference"
+    };
 }

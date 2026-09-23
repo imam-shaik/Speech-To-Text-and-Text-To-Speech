@@ -145,4 +145,22 @@ public class WhisperEngineConstMe : ISpeechToTextEngine
         get => Se.Settings.Tools.AudioToText.CommandLineParameterConstMe;
         set => Se.Settings.Tools.AudioToText.CommandLineParameterConstMe = value;
     }
+
+    public SpeechToTextEngineCapabilities GetCapabilities() => new()
+    {
+        SupportsTranslateDuringTranscription = true,
+        SupportsAutoTranslate = true,
+        SupportsBilingualOutput = true,
+        SupportsResumeFromCheckpoint = true,
+        SupportsChunkedTranscription = true,
+        SupportsLegacyTranscription = true,
+        SupportsAutomaticMode = true,
+        SupportsBackendSelection = false,
+        SupportsForcedAlignerSelection = false,
+        SupportsSceneAwareSplitting = true,
+        SupportsCustomCommandLine = true,
+        IsOffline = true,
+        IsFastStartup = false,
+        Description = "Const-me - Offline, optimized for speed"
+    };
 }

@@ -51,11 +51,20 @@ public static class ViewAutoTranslate
         var labelApiKey = UiUtil.MakeLabel(Se.Language.General.ApiKey).WithBindVisible(vm, nameof(vm.AutoTranslateApiKeyIsVisible));
         var textBoxApiKey = UiUtil.MakeTextBox(300, vm, nameof(vm.AutoTranslateApiKey), nameof(vm.AutoTranslateApiKeyIsVisible));
 
+        var checkBoxSaveOriginal = new CheckBox
+        {
+            Content = Se.Language.General.SaveOriginalAlso,
+            IsChecked = vm.AutoTranslateSaveOriginalAlso,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        checkBoxSaveOriginal.Bind(CheckBox.IsCheckedProperty, new Binding(nameof(vm.AutoTranslateSaveOriginalAlso)) { Mode = BindingMode.TwoWay });
+
 
         var grid = new Grid
         {
             RowDefinitions =
             {
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) },
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) },
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) },
                 new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) },
@@ -90,6 +99,8 @@ public static class ViewAutoTranslate
 
         grid.Add(labelApiKey, 5, 0);
         grid.Add(textBoxApiKey, 5, 1);
+
+        grid.Add(checkBoxSaveOriginal, 6, 0, 1, 2);
 
         return grid;
     }

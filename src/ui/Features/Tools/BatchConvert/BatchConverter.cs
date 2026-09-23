@@ -241,7 +241,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
             if (mp4Files.Count <= 0)
             {
-                item.Status = Se.Language.General.NoSubtitlesFound;
+                item.Status = BatchConvertStatus.Failed;
+                item.StatusMessage = Se.Language.General.NoSubtitlesFound;
             }
             else
             {
@@ -275,7 +276,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
         if (imageSubtitle != null && !_config.IsTargetFormatImageBased)
         {
-            item.Status = Se.Language.General.OcrDotDotDot;
+            item.Status = BatchConvertStatus.Recognizing;
             if (Se.Settings.Tools.BatchConvert.OcrEngine.Equals("nOcr", StringComparison.OrdinalIgnoreCase))
             {
                 RunNOcr(imageSubtitle, item, cancellationToken);
@@ -302,6 +303,39 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         var imageToImage = _config.IsTargetFormatImageBased && imageSubtitle != null;
         if (item.Subtitle != null)
         {
+            Subtitle? originalSubtitle = null;
+            var shouldSaveOriginalAlso = _config.AutoTranslate.IsActive && _config.AutoTranslate.SaveOriginalAlso;
+
+            if (shouldSaveOriginalAlso)
+            {
+                originalSubtitle = new Subtitle(item.Subtitle, false);
+
+                // Save original with source language code BEFORE translation modifies the text
+                var originalSaved = await TrySaveOriginalSubtitleAsTargetFormat(item, originalSubtitle, cancellationToken);
+
+                // Switch item.LanguageCode to target language so the translated file gets the right suffix
+                var targetLanguage = _config.AutoTranslate.TargetLanguage?.TwoLetterIsoLanguageName;
+                if (!string.IsNullOrEmpty(targetLanguage))
+                {
+                    item.LanguageCode = targetLanguage;
+                }
+
+                if (!originalSaved)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        item.Status = BatchConvertStatus.Cancelled;
+                    }
+                    else
+                    {
+                        item.Status = BatchConvertStatus.Failed;
+                        item.StatusMessage = "Original subtitle could not be saved in target format.";
+                    }
+
+                    return;
+                }
+            }
+
             item.Subtitle = await RunConvertFunctions(item, imageToImage, cancellationToken);
         }
 
@@ -619,7 +653,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
     {
         if (item.Subtitle == null)
         {
-            item.Status = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
+            item.Status = BatchConvertStatus.Failed;
+            item.StatusMessage = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
             return;
         }
 
@@ -639,7 +674,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         var selectedCustomFormat = customFormats.FirstOrDefault();
         if (selectedCustomFormat == null)
         {
-            item.Status = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
+            item.Status = BatchConvertStatus.Failed;
+            item.StatusMessage = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
             return;
         }
 
@@ -657,7 +693,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         for (var i = 0; i < imageSubtitles.Count; i++)
         {
             var pct = (i + 1) * 100 / imageSubtitles.Count;
-            item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+            item.Status = BatchConvertStatus.Recognizing;
+            item.StatusMessage = string.Format(Se.Language.General.OcrPercentX, pct);
             var bitmap = imageSubtitles.GetBitmap(i);
             var text = await tesseractOcr.Ocr(bitmap, language, cancellationToken);
             var p = new Paragraph(text, imageSubtitles.GetStartTime(i).TotalMilliseconds, imageSubtitles.GetEndTime(i).TotalMilliseconds);
@@ -665,7 +702,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
             if (cancellationToken.IsCancellationRequested)
             {
-                item.Status = Se.Language.General.Cancelled;
+                item.Status = BatchConvertStatus.Cancelled;
                 break;
             }
         }
@@ -683,7 +720,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         var pixelsAreSpace = Se.Settings.Ocr.NOcrPixelsAreSpace > 0 ? Se.Settings.Ocr.NOcrPixelsAreSpace : 12;
         if (sampleSize > 0)
         {
-            item.Status = Se.Language.General.OcrDotDotDot;
+            item.Status = BatchConvertStatus.Recognizing;
             var detected = DetectPixelsIsSpace(imageSubtitles, sampleSize, cancellationToken);
             if (detected.HasValue)
             {
@@ -693,7 +730,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
         if (cancellationToken.IsCancellationRequested)
         {
-            item.Status = Se.Language.General.Cancelled;
+            item.Status = BatchConvertStatus.Cancelled;
             return;
         }
 
@@ -714,13 +751,14 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             {
                 processedCount++;
                 var pct = processedCount * 100 / totalCount;
-                item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+                item.Status = BatchConvertStatus.Recognizing;
+                item.StatusMessage = string.Format(Se.Language.General.OcrPercentX, pct);
             }
         });
 
         if (cancellationToken.IsCancellationRequested)
         {
-            item.Status = Se.Language.General.Cancelled;
+            item.Status = BatchConvertStatus.Cancelled;
             return;
         }
 
@@ -841,7 +879,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         var fileName = Path.Combine(Se.OcrFolder, dbName + BinaryOcrDb.Extension);
         if (!File.Exists(fileName))
         {
-            item.Status = "BinaryOcr database not found: " + dbName;
+            item.Status = BatchConvertStatus.Failed;
+            item.StatusMessage = "BinaryOcr database not found: " + dbName;
             return;
         }
 
@@ -854,7 +893,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         var pixelsAreSpace = Se.Settings.Ocr.BinaryOcrPixelsAreSpace;
         if (sampleSize > 0)
         {
-            item.Status = Se.Language.General.OcrDotDotDot;
+            item.Status = BatchConvertStatus.Recognizing;
             var detected = DetectPixelsIsSpace(imageSubtitles, sampleSize, cancellationToken);
             if (detected.HasValue)
             {
@@ -864,7 +903,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
         if (cancellationToken.IsCancellationRequested)
         {
-            item.Status = Se.Language.General.Cancelled;
+            item.Status = BatchConvertStatus.Cancelled;
             return;
         }
 
@@ -878,13 +917,14 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             processedCount =>
             {
                 var pct = processedCount * 100 / totalCount;
-                item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+                item.Status = BatchConvertStatus.Recognizing;
+                item.StatusMessage = string.Format(Se.Language.General.OcrPercentX, pct);
             },
             cancellationToken);
 
         if (cancellationToken.IsCancellationRequested)
         {
-            item.Status = Se.Language.General.Cancelled;
+            item.Status = BatchConvertStatus.Cancelled;
             return;
         }
 
@@ -1099,7 +1139,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         item.Subtitle = new Subtitle();
 
         var batchImages = new List<PaddleOcrBatchInput>(numberOfImages);
-        item.Status = "Preparing OCR...";
+        item.Status = BatchConvertStatus.Preparing;
+        item.StatusMessage = "Preparing OCR...";
         for (var i = 0; i < imageSubtitles.Count; i++)
         {
             batchImages.Add(new PaddleOcrBatchInput
@@ -1127,14 +1168,15 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
                 ocrCount++;
                 var number = p.Index;
                 var percentage = numberOfImages > 0 ? ocrCount * 100 / numberOfImages : 0;
-                item.Status = string.Format(Se.Language.General.OcrPercentX, percentage);
+                item.Status = BatchConvertStatus.Recognizing;
+                item.StatusMessage = string.Format(Se.Language.General.OcrPercentX, percentage);
 
                 var paragraph = new Paragraph(p.Text, imageSubtitles.GetStartTime(number).TotalMilliseconds, imageSubtitles.GetEndTime(number).TotalMilliseconds);
                 item.Subtitle.Paragraphs.Add(paragraph);
             }
         });
 
-        item.Status = Se.Language.General.OcrDotDotDot;
+        item.Status = BatchConvertStatus.Recognizing;
         await ocrEngine.OcrBatch(OcrEngineType.PaddleOcrStandalone, batchImages, language, mode, ocrProgress, cancellationToken);
         var checkCount = 0;
         while (ocrCount < numberOfImages && checkCount < 100)
@@ -1154,7 +1196,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         for (var i = 0; i < imageSubtitles.Count; i++)
         {
             var pct = (i + 1) * 100 / imageSubtitles.Count;
-            item.Status = string.Format(Se.Language.General.OcrPercentX, pct);
+            item.Status = BatchConvertStatus.Recognizing;
+            item.StatusMessage = string.Format(Se.Language.General.OcrPercentX, pct);
             var bitmap = imageSubtitles.GetBitmap(i);
             var text = await ollamaOcr.Ocr(bitmap, url, model, language, cancellationToken);
             var p = new Paragraph(text, imageSubtitles.GetStartTime(i).TotalMilliseconds, imageSubtitles.GetEndTime(i).TotalMilliseconds);
@@ -1162,7 +1205,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
             if (cancellationToken.IsCancellationRequested)
             {
-                item.Status = Se.Language.General.Cancelled;
+                item.Status = BatchConvertStatus.Cancelled;
                 break;
             }
         }
@@ -1172,7 +1215,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
     {
         if (imageSubtitle == null)
         {
-            item.Status = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
+            item.Status = BatchConvertStatus.Failed;
+            item.StatusMessage = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
             return;
         }
 
@@ -1215,7 +1259,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
             if (cancellationToken.IsCancellationRequested)
             {
-                item.Status = Se.Language.General.Cancelled;
+                item.Status = BatchConvertStatus.Cancelled;
                 break;
             }
         }
@@ -1272,7 +1316,8 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
 
         if (exportHandler == null || imageParameters.Count == 0)
         {
-            item.Status = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
+            item.Status = BatchConvertStatus.Failed;
+            item.StatusMessage = string.Format(Se.Language.General.ErrorX, Se.Language.General.Error);
             return;
         }
 
@@ -1285,7 +1330,7 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         }
 
         exportHandler.WriteFooter();
-        item.Status = Se.Language.General.Converted;
+        item.Status = BatchConvertStatus.Completed;
     }
 
     private async Task SaveSubtitleFormat(BatchConvertItem item, SubtitleFormat targetFormat, CancellationToken cancellationToken)
@@ -1314,11 +1359,12 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             var converted = targetFormat.ToText(s, _config.TargetEncoding);
             var path = MakeOutputFileName(item, targetFormat.Extension);
             await File.WriteAllTextAsync(path, converted, cancellationToken);
-            item.Status = Se.Language.General.Converted;
+            item.Status = BatchConvertStatus.Completed;
         }
         catch (Exception exception)
         {
-            item.Status = string.Format(Se.Language.General.ErrorX, exception.Message);
+            item.Status = BatchConvertStatus.Failed;
+            item.StatusMessage = string.Format(Se.Language.General.ErrorX, exception.Message);
         }
     }
 
@@ -1334,11 +1380,12 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             var path = MakeOutputFileName(item, f.Extension);
             using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write);
             format.Save(path, fileStream, item.Subtitle, true);
-            item.Status = Se.Language.General.Converted;
+            item.Status = BatchConvertStatus.Completed;
         }
         catch (Exception exception)
         {
-            item.Status = string.Format(Se.Language.General.ErrorX, exception.Message);
+            item.Status = BatchConvertStatus.Failed;
+            item.StatusMessage = string.Format(Se.Language.General.ErrorX, exception.Message);
         }
     }
 
@@ -2179,6 +2226,11 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
             return subtitle;
         }
 
+        if (_config.AutoTranslate.SourceLanguage?.Code == _config.AutoTranslate.TargetLanguage?.Code)
+        {
+            return subtitle;
+        }
+
         Configuration.Settings.Tools.OllamaPrompt = Se.Settings.AutoTranslate.OllamaPrompt;
         Configuration.Settings.Tools.OllamaApiUrl = Se.Settings.AutoTranslate.OllamaUrl;
         Configuration.Settings.Tools.OllamaModel = Se.Settings.AutoTranslate.OllamaModel;
@@ -2512,6 +2564,28 @@ public class BatchConverter : IBatchConverter, IFixCallbacks
         }
 
         return outputFileName;
+    }
+
+    private async Task<bool> TrySaveOriginalSubtitleAsTargetFormat(BatchConvertItem item, Subtitle originalSubtitle, CancellationToken cancellationToken)
+    {
+        var targetFormat = _subtitleFormats.FirstOrDefault(f => f.Name == _config.TargetFormatName);
+        if (targetFormat == null || !targetFormat.IsTextBased)
+        {
+            return false;
+        }
+
+        try
+        {
+            var s = new Subtitle(originalSubtitle);
+            var converted = targetFormat.ToText(s, _config.TargetEncoding);
+            var path = MakeOutputFileName(item, targetFormat.Extension);
+            await File.WriteAllTextAsync(path, converted, cancellationToken);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public bool AllowFix(Paragraph p, string action)

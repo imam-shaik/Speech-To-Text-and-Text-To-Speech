@@ -21,6 +21,18 @@ namespace Nikse.SubtitleEdit.Core.AudioToText
             new VoskModel
             {
                 TwoLetterLanguageCode = "en",
+                LanguageName = "English (small, 38 MB)",
+                Url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+            },
+            new VoskModel
+            {
+                TwoLetterLanguageCode = "en",
+                LanguageName = "English (small, 46 MB)",
+                Url = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.22.zip",
+            },
+            new VoskModel
+            {
+                TwoLetterLanguageCode = "en",
                 LanguageName = "English (medium size, 128 MB)",
                 Url = "https://alphacephei.com/vosk/models/vosk-model-en-us-0.22-lgraph.zip",
             },
@@ -239,6 +251,12 @@ namespace Nikse.SubtitleEdit.Core.AudioToText
                 TwoLetterLanguageCode = "br",
                 LanguageName = "Breton (small, 70 MB)",
                 Url = "https://alphacephei.com/vosk/models/vosk-model-br-0.8.zip",
+            },
+            new VoskModel
+            {
+                TwoLetterLanguageCode = "te",
+                LanguageName = "Telugu (small, 38 MB)",
+                Url = "https://alphacephei.com/vosk/models/vosk-model-small-te-0.42.zip",
             },
         };
     }
